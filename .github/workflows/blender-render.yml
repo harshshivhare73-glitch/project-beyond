@@ -1,3 +1,4 @@
+```yaml
 name: Remote Blender 3D Renderer
 
 on:
@@ -58,76 +59,97 @@ jobs:
             echo "$SCRIPT_CONTENT" | base64 -d > scene.py
           fi
 
-          # Sanitize legacy or mistakenly pasted bpy.mathutils references
           if grep -q "bpy\.mathutils" scene.py; then
-            echo "::warning::Legacy 'bpy.mathutils' detected in decoded script. Auto-correcting to 'mathutils'..."
+            echo "::warning::Correcting legacy bpy.mathutils references..."
             sed -i 's/bpy\.mathutils/mathutils/g' scene.py
             if ! grep -q "import mathutils" scene.py; then
               sed -i '1s/^/import mathutils\n/' scene.py
             fi
           fi
 
-          # Strict pre-flight verification: ensure no bpy.mathutils remains before running Blender
           if grep -q "bpy\.mathutils" scene.py; then
-            echo "::error::scene.py still contains invalid bpy.mathutils references"
+            echo "::error::Invalid bpy.mathutils references remain."
             exit 1
           fi
 
-          echo "✓ Pre-flight verification passed: scene.py contains no bpy.mathutils references."
+          echo "Pre-flight verification passed."
           head -n 30 scene.py
+
+      - name: Disable Unsupported Cycles Denoising
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("scene.py")
+          source = path.read_text()
+
+          # Insert the compatibility setting before the render call.
+          render_line = "bpy.ops.render.render(write_still=True)"
+
+          if render_line not in source:
+              print("Expected render call not found; leaving script unchanged.")
+              raise SystemExit(1)
+
+          patch = (
+              'if bpy.context.scene.render.engine == "CYCLES":\n'
+              '    bpy.context.scene.cycles.use_denoising = False\n'
+          )
+
+          source = source.replace(render_line, patch + render_line, 1)
+          path.write_text(source)
+          print("Cycles denoising compatibility setting added.")
+          PY
 
       - name: Execute Headless Blender Render
         run: |
           echo "Starting headless render via Blender..."
-          # Headless render invocation: blender -b -P scene.py
           blender -b --python-exit-code 1 -P scene.py
 
       - name: Verify Rendered Outputs
         run: |
           echo "Locating and verifying generated files..."
-          # 1. Check primary output/ directory
+
           if [ -s "output/scene.blend" ]; then
             cp output/scene.blend ./scene.blend
           fi
+
           if [ -s "output/render.png" ]; then
             cp output/render.png ./render.png
           fi
 
-          # 2. Fallback search if files were saved in a subfolder or project path
           if [ ! -s "scene.blend" ]; then
             FOUND_BLEND=$(find . -maxdepth 5 -name "scene.blend" -size +0c -not -path "*/.git/*" | head -n 1)
             if [ -n "$FOUND_BLEND" ]; then
-              echo "Found scene.blend at $FOUND_BLEND, copying to workspace root..."
               cp "$FOUND_BLEND" ./scene.blend
             fi
           fi
+
           if [ ! -s "render.png" ]; then
             FOUND_PNG=$(find . -maxdepth 5 -name "render.png" -size +0c -not -path "*/.git/*" | head -n 1)
             if [ -n "$FOUND_PNG" ]; then
-              echo "Found render.png at $FOUND_PNG, copying to workspace root..."
               cp "$FOUND_PNG" ./render.png
             fi
           fi
 
-          # 3. Strict verification of existence and non-zero size
           if [ ! -s "scene.blend" ]; then
-            echo "::error::scene.blend missing or 0 bytes"
+            echo "::error::scene.blend missing or empty."
             exit 1
           fi
 
           if [ ! -s "render.png" ]; then
-            echo "::error::render.png missing or 0 bytes"
+            echo "::error::render.png missing or empty."
             exit 1
           fi
 
-          # Verify PNG magic byte signature (0x89 0x50 0x4E 0x47)
           PNG_HEX=$(head -c 4 render.png | xxd -p)
           if [ "$PNG_HEX" != "89504e47" ]; then
-            echo "::error::render.png does not have valid PNG header (got $PNG_HEX)"
+            echo "::error::Invalid PNG header: $PNG_HEX"
             exit 1
           fi
 
-          echo "✓ Verification successful: scene.blend ($(stat -c%s scene.blend) bytes) and render.png ($(stat -c%s render.png) bytes)."
+          echo "Verification successful."
+          echo "scene.blend: $(stat -c%s scene.blend) bytes"
+          echo "render.png: $(stat -c%s render.png) bytes"
 
       - name: Upload Verified 3D Render Artifacts
         uses: actions/upload-artifact@v4
@@ -138,3 +160,4 @@ jobs:
             scene.blend
           if-no-files-found: error
           retention-days: 1
+```
