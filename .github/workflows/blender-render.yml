@@ -1,4 +1,3 @@
-```yaml
 name: Remote Blender 3D Renderer
 
 on:
@@ -160,4 +159,3 @@ jobs:
             scene.blend
           if-no-files-found: error
           retention-days: 1
-```
