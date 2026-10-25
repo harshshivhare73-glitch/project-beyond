@@ -1,0 +1,1069 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Project Beyond</title>
+<style>
+:root{--bg:#07081a;--panel:#0e1030;--panel2:#141745;--line:#262a66;--text:#e6e9ff;--mute:#9399cc;--blue:#3ea8ff;--purple:#a45bff;--ok:#3df5b0;--warn:#ffc857;--err:#ff4d7d;
+--glow:0 0 18px rgba(62,168,255,.35);--sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+box-sizing:border-box;color-scheme:dark;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html{scroll-padding-top:env(safe-area-inset-top,0px);height:100%}
+*,*::before,*::after{box-sizing:inherit}
+body{margin:0;min-height:100%;background:radial-gradient(900px 500px at 85% -10%,rgba(164,91,255,.18),transparent),radial-gradient(800px 500px at 0% 100%,rgba(62,168,255,.14),transparent),var(--bg);color:var(--text);font-family:var(--sans);display:flex}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+aside{width:232px;flex:none;border-right:1px solid var(--line);background:rgba(14,16,48,.7);padding:22px 14px;display:flex;flex-direction:column;gap:6px;position:sticky;top:0;height:100vh}
+.brand{font-weight:700;font-size:1.25rem;letter-spacing:.02em;padding:0 10px 18px;background:linear-gradient(90deg,var(--blue),var(--purple));-webkit-background-clip:text;background-clip:text;color:transparent}
+.brand small{display:block;font:400 .72rem var(--mono);color:var(--mute);-webkit-text-fill-color:var(--mute);margin-top:2px}
+nav a{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;color:var(--mute);text-decoration:none;border:1px solid transparent}
+nav a:hover{color:var(--text);background:var(--panel2)}
+nav a.on{color:#fff;background:linear-gradient(90deg,rgba(62,168,255,.18),rgba(164,91,255,.18));border-color:var(--line);box-shadow:var(--glow)}
+nav svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8}
+.side-note{margin-top:auto;font:400 .72rem/1.5 var(--mono);color:var(--mute);padding:10px;border:1px dashed var(--line);border-radius:10px}
+main{flex:1;min-width:0;padding:26px clamp(16px,3vw,36px) 40px}
+.banner{display:flex;gap:10px;align-items:center;border-radius:10px;padding:10px 14px;font-size:.88rem;margin-bottom:16px;background:rgba(62,168,255,.08);border:1px solid rgba(62,168,255,.4);color:#a9d6ff}
+.banner.err{background:rgba(255,77,125,.1);border-color:var(--err);color:#ffb3c6}
+h1{margin:0 0 4px;font-size:1.7rem}h2{margin:0 0 12px;font-size:1.05rem}
+.sub{color:var(--mute);margin:0 0 22px}
+.grid{display:grid;gap:16px}
+.stats{grid-template-columns:repeat(auto-fit,minmax(160px,1fr));margin-bottom:22px}
+.cols{grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr))}
+.agents{grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr))}
+.card{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line);border-radius:14px;padding:16px}
+.stat b{display:block;font-size:1.9rem;font-weight:700}.stat span{color:var(--mute);font-size:.85rem}
+.stat.b b{color:var(--blue);text-shadow:0 0 14px rgba(62,168,255,.6)}.stat.p b{color:var(--purple);text-shadow:0 0 14px rgba(164,91,255,.6)}
+.stat.g b{color:var(--ok)}.stat.r b{color:var(--err)}
+.pill{display:inline-flex;align-items:center;gap:6px;font:500 .74rem var(--mono);padding:3px 9px;border-radius:99px;border:1px solid currentColor;white-space:nowrap}
+.pill::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor;box-shadow:0 0 8px currentColor}
+.s-pending,.s-queued{color:var(--warn)}.s-progress,.s-running{color:var(--blue)}.s-paused{color:#e0a0ff}.s-done,.s-completed{color:var(--ok)}.s-failed{color:var(--err)}.s-nc{color:#ff8fb0}
+.bar{height:8px;border-radius:99px;background:#0a0b26;border:1px solid var(--line);overflow:hidden}
+.bar i{display:block;height:100%;background:linear-gradient(90deg,var(--blue),var(--purple));box-shadow:0 0 10px var(--purple);transition:width .3s}
+.bar.d i{background:var(--ok);box-shadow:none}
+.row{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.ag h3{margin:10px 0 2px;font-size:1.05rem}.ag p{margin:0 0 12px;color:var(--mute);font-size:.86rem;min-height:2.6em}
+.ico{width:42px;height:42px;border-radius:12px;display:grid;place-items:center;font-size:1.3rem;background:rgba(62,168,255,.12);border:1px solid var(--line)}
+.btn{background:transparent;border:1px solid var(--line);border-radius:9px;padding:7px 12px;cursor:pointer}
+.btn:hover:not(:disabled){border-color:var(--blue);box-shadow:var(--glow)}
+.btn.pri{background:linear-gradient(90deg,var(--blue),var(--purple));border:0;color:#050616;font-weight:700}
+.btn.on{border-color:var(--purple);background:rgba(164,91,255,.2)}
+.btn.sm{padding:4px 10px;font-size:.82rem}.btn:disabled{opacity:.45;cursor:not-allowed}
+form.new{display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:10px}
+input[type=text],select,textarea{background:#0a0b26;border:1px solid var(--line);border-radius:9px;padding:9px 11px;min-width:0;width:100%;color:var(--text);font-family:inherit;font-size:inherit}
+input[aria-invalid=true],textarea[aria-invalid=true]{border-color:var(--err)}
+.ferr{color:#ff9db8;font-size:.85rem;margin:8px 0 0;min-height:1.2em}
+.task{display:grid;gap:8px;margin-bottom:12px}
+.task select{width:auto;padding:5px 8px;font-size:.85rem}
+.mono{font-family:var(--mono);font-size:.8rem}.mute{color:var(--mute)}
+.log{font:400 .8rem/1.5 var(--mono);padding:7px 10px;border-left:3px solid var(--line);margin-bottom:6px;background:rgba(10,11,38,.6);border-radius:0 8px 8px 0;overflow-wrap:anywhere}
+.log.error{border-color:var(--err);color:#ffb3c6}.log.warn{border-color:var(--warn)}.log.info{border-color:var(--blue)}.log.ok{border-color:var(--ok)}
+.tag{font:500 .68rem var(--mono);color:var(--mute);border:1px dashed var(--line);border-radius:6px;padding:1px 5px;margin-left:6px}
+.set{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:12px 0;border-bottom:1px solid var(--line)}
+.set:last-child{border:0}.set small{display:block;color:var(--mute)}
+.empty{color:var(--mute);padding:22px;text-align:center;border:1px dashed var(--line);border-radius:12px}
+.empty b{display:block;color:var(--text);margin-bottom:4px}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0 14px}
+@media(max-width:820px){
+ body{display:block;padding-bottom:76px}
+ aside{position:fixed;inset:auto 0 0 0;width:auto;height:auto;flex-direction:row;padding:6px 6px calc(6px + env(safe-area-inset-bottom,0px));z-index:5;border:0;border-top:1px solid var(--line);background:rgba(14,16,48,.95)}
+ .brand,.side-note{display:none}nav{display:flex;width:100%;justify-content:space-around}
+ nav a{flex-direction:column;gap:2px;font-size:.68rem;padding:6px 4px}
+ form.new{grid-template-columns:1fr}
+}
+.wf-card{border-left:4px solid var(--blue)}
+.wf-subtasks{margin-top:14px;padding-left:14px;border-left:2px solid var(--line);display:grid;gap:8px}
+.wf-subtask{background:rgba(10,11,38,.7);border:1px solid var(--line);border-radius:8px;padding:10px}
+@media(prefers-reduced-motion:reduce){.bar i{transition:none}}
+</style>
+</head>
+<body>
+<aside>
+  <div class="brand">PROJECT BEYOND<small>command center · prototype</small></div>
+  <nav id="nav" aria-label="Main"></nav>
+  <div class="side-note">Free-First mode on by default. API keys stored in local .env.</div>
+</aside>
+<main id="view"></main>
+
+<script>
+/* PROJECT BEYOND — local prototype. No network calls, no API keys, no paid services.
+   To extend later: replace the `store` functions with calls to your own backend. */
+const ICONS={dashboard:'<path d="M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10"/>',agents:'<rect x="5" y="7" width="14" height="11" rx="3"/><path d="M12 3v4M9 12h.01M15 12h.01"/>',tasks:'<path d="M4 6h16M4 12h16M4 18h10"/>',workflows:'<path d="M4 4h6v6H4zM14 4h6v6h-6zM9 14h6v6H9zM7 10v2a2 2 0 0 0 2 2h2m4-4v2a2 2 0 0 1-2 2h-2"/>',tools:'<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',logs:'<path d="M5 4h14v16H5zM9 9h6M9 13h6"/>',settings:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/>'};
+const SECTIONS=[['dashboard','Dashboard'],['agents','AI Agents'],['tasks','Task Manager'],['workflows','AI Workflows'],['tools','Free Toolkit'],['logs','Activity Logs'],['settings','Settings']];
+const AGENTS=[
+ {id:'coding',name:'Coding Agent',icon:'💻',tier:'REAL',engine:'Google Gemini & Ollama',desc:'Writes, reviews, refactors, and explains clean code. Checkpointed multi-step execution.'},
+ {id:'research',name:'Research Agent',icon:'🔎',tier:'REAL',engine:'Wikipedia API + Gemini',desc:'Fetches genuine encyclopedia sources and synthesizes factual research briefs with verified citations.'},
+ {id:'sketch',name:'Sketch Agent',icon:'✏️',tier:'PARTIAL',engine:'Gemini Layout Engine',desc:'Generates ASCII wireframes, component layouts, and UI hierarchy specs. (Raster graphics not included).'},
+ {id:'graphics',name:'Graphics Agent',icon:'🎨',tier:'PARTIAL',engine:'Gemini Vector Engine',desc:'Generates standalone SVG vector graphics, icons, and diagrams. (Diffusion raster models require external API).'},
+ {id:'video',name:'Video Agent',icon:'🎬',tier:'MOCK',engine:'Script / Concept Only',desc:'Plans storyboards, scene descriptions, and voiceover scripts. (Actual MP4 video rendering engine is not installed).'}];
+const STATUS={pending:'Queued',queued:'Queued',progress:'Running',running:'Running',paused:'Paused',done:'Completed',completed:'Completed',failed:'Failed'};
+const PCT={pending:0,queued:0,progress:50,running:50,paused:35,done:100,completed:100,failed:0};
+const KEY='project-beyond-v2';
+
+const now=Date.now();
+const seed=()=>({nextId:4,
+ settings:{freeFirst:true},
+ ollama:{connected:false,models:[]},
+ providers:[],
+ blender:{available:false,executable:null,version:null},
+ tasks:[
+  {id:1,title:'Outline login page layout',agent:'sketch',priority:'Medium',status:'progress'},
+  {id:2,title:'List free hosting options',agent:'research',priority:'High',status:'pending'},
+  {id:3,title:'Choose project color palette',agent:'graphics',priority:'Low',status:'done'}],
+ logs:[
+  {t:now-600000,lvl:'info',msg:'Project Beyond started in local prototype mode.',sample:1},
+  {t:now-540000,lvl:'ok',msg:'Free-First mode is enabled.',sample:1},
+  {t:now-480000,lvl:'warn',msg:'No AI provider configured. Agents are Not Connected.',sample:1},
+  {t:now-300000,lvl:'error',msg:'Sample error: agent connection failed (no API key set).',sample:1},
+  {t:now-120000,lvl:'error',msg:'Sample error: task could not be delivered, agent offline.',sample:1}]});
+
+// ---- Storage (localStorage, guarded) ----
+let S,notice='',filter='all',logFilter='all',storageOk=true;
+let previewPlan=null,workflowPollTimer=null,workflowPollCount=0;
+const MAX_WORKFLOW_POLLS=60;
+function stopWorkflowPolling(){if(workflowPollTimer){clearInterval(workflowPollTimer);workflowPollTimer=null;workflowPollCount=0;}}
+function load(){
+ try{
+  const raw=localStorage.getItem(KEY);
+  if(!raw)return seed();
+  const d=JSON.parse(raw);
+  if(!d||!Array.isArray(d.tasks)||!Array.isArray(d.logs)||!d.settings)throw new Error('bad shape');
+  if(!d.ollama)d.ollama={connected:false,models:[]};
+  if(!d.providers)d.providers=[];
+  if(!d.blender)d.blender={available:false,executable:null,version:null};
+  return d;
+ }catch(e){
+  storageOk=!(e&&e.name==='SecurityError');
+  notice=storageOk?'Saved data was unreadable, so sample data was restored.':'Browser storage is unavailable. Tasks will not be saved after refresh.';
+  return seed();
+ }
+}
+function save(){
+ try{localStorage.setItem(KEY,JSON.stringify(S));}
+ catch(e){storageOk=false;notice='Could not save to browser storage. Changes will be lost on refresh.';}
+}
+function log(lvl,msg){S.logs.unshift({t:Date.now(),lvl,msg});S.logs.length=Math.min(S.logs.length,150)}
+
+// ---- Helpers ----
+const $=s=>document.querySelector(s);
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const ag=id=>id==='workflow'?{name:'AI Workflow',icon:'⚡'}:(AGENTS.find(a=>a.id===id)||{name:'Unknown',icon:'?'});
+const time=t=>new Date(t).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+const pill=s=>`<span class="pill s-${s}">${STATUS[s]}</span>`;
+const isCat=(t,c)=>{
+  if(c==='queued') return t.status==='pending'||t.status==='queued';
+  if(c==='running') return t.status==='progress'||t.status==='running';
+  if(c==='paused') return t.status==='paused';
+  if(c==='completed') return t.status==='done'||t.status==='completed';
+  if(c==='failed') return t.status==='failed';
+  return t.status===c;
+};
+const countCat=c=>S.tasks.filter(t=>isCat(t,c)).length;
+const bar=t=>{
+  const pct = (typeof t.progress === 'number' && t.progress > 0) ? t.progress : (PCT[t.status] || 0);
+  const isDone = t.status === 'done' || t.status === 'completed';
+  return `<div class="bar ${isDone?'d':''}" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100" aria-label="Progress"><i style="width:${pct}%"></i></div>`;
+};
+const NC='<span class="pill s-nc">Not Connected</span>';
+const empty=(h,p)=>`<div class="empty"><b>${h}</b>${p}</div>`;
+const logHtml=L=>L.map(l=>`<div class="log ${l.lvl}">[${time(l.t)}] ${l.lvl.toUpperCase()} · ${esc(l.msg)}${l.sample?'<span class="tag">sample</span>':''}</div>`).join('');
+const count=s=>S.tasks.filter(t=>t.status===s).length;
+
+function taskCard(t,ctl){
+  const pct = (typeof t.progress === 'number' && t.progress > 0) ? t.progress : (PCT[t.status] || 0);
+  const isQueued = t.status === 'pending' || t.status === 'queued';
+  const isRunning = t.status === 'progress' || t.status === 'running';
+  const isPaused = t.status === 'paused';
+  const isFailed = t.status === 'failed';
+  const isCompleted = t.status === 'done' || t.status === 'completed';
+
+  let subtaskTag = '';
+  if (t.parent_id) {
+    subtaskTag = `<span class="tag" style="color:var(--purple);border-color:var(--purple)">Subtask of #${t.parent_id}</span>`;
+  } else if (t.agent === 'workflow') {
+    subtaskTag = `<span class="tag" style="color:var(--blue);border-color:var(--blue)">Workflow</span>`;
+  }
+
+  let depHtml = '';
+  try {
+    const deps = JSON.parse(t.depends_on || '[]');
+    if (deps && deps.length) {
+      depHtml = `<div class="mono mute" style="font-size:0.75rem;margin-top:2px">Depends on: ${deps.map(d=>'#'+d).join(', ')}</div>`;
+    }
+  } catch {}
+
+  return `<div class="card task" id="task-card-${t.id}">
+    <div class="row">
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        <b>${esc(t.title)}</b>
+        ${subtaskTag}
+      </div>
+      <div style="display:flex;align-items:center;gap:6px">
+        ${t.current_step?`<span class="tag">Step: ${esc(t.current_step)}</span>`:''}
+        ${pill(t.status)}
+      </div>
+    </div>
+    <div class="row mono mute">
+      <span>${ag(t.agent).icon} ${ag(t.agent).name} · ${t.priority} priority ${t.provider?`· [${esc(t.provider)}]`:''}</span>
+      <span>${pct}%</span>
+    </div>
+    ${depHtml}
+    ${bar(t)}
+    ${t.retry_count?`<div class="mono mute" style="font-size:0.75rem;color:var(--warn)">Retries: ${t.retry_count}/${t.max_retries||3}</div>`:''}
+    ${t.error?`<div style="color:var(--err);font-size:0.82rem;padding:6px 10px;background:rgba(255,77,125,0.08);border:1px solid rgba(255,77,125,0.3);border-radius:8px">⚠ ${esc(t.error)}</div>`:''}
+    ${t.result?`<div style="margin-top:6px">
+      ${t.result.includes('<svg')?`<div style="background:#0a0b26;border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:6px;display:flex;justify-content:center;overflow:hidden">${t.result.slice(t.result.indexOf('<svg'), t.result.indexOf('</svg>')+6)}</div>`:''}
+      <div style="background:#050616;border:1px solid var(--line);border-radius:8px;padding:10px;max-height:220px;overflow-y:auto;font-family:var(--mono);font-size:0.8rem;white-space:pre-wrap;color:#bfe3ff"><code>${esc(t.result)}</code></div>
+    </div>`:''}
+    ${ctl?`<div class="row" style="margin-top:6px">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <label class="mute mono">Status <select data-act="status" data-id="${t.id}" aria-label="Change status of ${esc(t.title)}">
+          <option value="queued" ${isQueued?'selected':''}>Queued</option>
+          <option value="running" ${isRunning?'selected':''}>Running</option>
+          <option value="paused" ${isPaused?'selected':''}>Paused</option>
+          <option value="completed" ${isCompleted?'selected':''}>Completed</option>
+          <option value="failed" ${isFailed?'selected':''}>Failed</option>
+        </select></label>
+        ${isQueued?`<button class="btn sm pri" data-act="run-gemini" data-id="${t.id}">Execute with ${ag(t.agent).name}</button>`:''}
+        ${isRunning?`<button class="btn sm" data-act="pause-task" data-id="${t.id}">Pause</button>`:''}
+        ${isPaused?`<button class="btn sm pri" data-act="resume-task" data-id="${t.id}">Resume</button>`:''}
+        ${isFailed?`<button class="btn sm pri" data-act="retry-task" data-id="${t.id}">Retry</button>`:''}
+      </div>
+      <button class="btn sm" data-act="del" data-id="${t.id}">Delete</button>
+    </div>`:''}
+  </div>`;
+}
+
+function renderWorkflowCard(w){
+  const subtasks = S.tasks.filter(t => t.parent_id === w.id).sort((a,b) => a.id - b.id);
+  const pct = (typeof w.progress === 'number' && w.progress > 0) ? w.progress : (PCT[w.status] || 0);
+  const isQueued = w.status === 'pending' || w.status === 'queued';
+  const isRunning = w.status === 'progress' || w.status === 'running';
+  const isCompleted = w.status === 'done' || w.status === 'completed';
+  const isFailed = w.status === 'failed';
+
+  let planSource = 'heuristic';
+  let planSummary = '';
+  let artifacts = [];
+  if (w.checkpoint_data) {
+    try {
+      const cd = typeof w.checkpoint_data === 'string' ? JSON.parse(w.checkpoint_data) : w.checkpoint_data;
+      if (cd.source) planSource = cd.source;
+      if (cd.plan) planSummary = cd.plan;
+      if (Array.isArray(cd.artifacts)) artifacts = cd.artifacts;
+    } catch {}
+  }
+
+  const sourceBadge = planSource === 'gemini'
+    ? '<span class="tag" style="color:var(--ok);border-color:var(--ok)">Gemini Cloud Plan</span>'
+    : '<span class="tag" style="color:var(--warn);border-color:var(--warn)">Local Heuristic Plan</span>';
+
+  const completedSubs = subtasks.filter(s => s.status === 'completed' || s.status === 'done').length;
+
+  return `<div class="card task wf-card" style="margin-bottom:16px;border-left-color:${isCompleted?'var(--ok)':isFailed?'var(--err)':'var(--blue)'}" id="wf-card-${w.id}">
+    <div class="row">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span class="tag" style="color:var(--blue);border-color:var(--blue);font-weight:700">Workflow #${w.id}</span>
+        <b style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(w.title)}</b>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px">
+        ${sourceBadge}
+        <span class="tag">${esc(w.priority)} Priority</span>
+        ${pill(w.status)}
+      </div>
+    </div>
+    ${planSummary ? `<div class="mute" style="font-size:0.83rem">${esc(planSummary)}</div>` : ''}
+    ${artifacts.length > 0 ? `<div style="margin:8px 0;background:rgba(10,11,38,0.85);border:1px solid rgba(61,245,176,0.3);border-radius:8px;padding:8px 10px">
+      <div class="row" style="margin-bottom:4px">
+        <span style="color:var(--ok);font-size:0.82rem;font-weight:600">📁 Verified File Artifacts (${artifacts.length} file(s) on disk)</span>
+        <span class="tag" style="color:var(--ok);border-color:var(--ok)">REAL · ON DISK</span>
+      </div>
+      <div style="display:grid;gap:3px">
+        ${artifacts.map(a => `
+          <div class="row mono mute" style="font-size:0.75rem">
+            <span style="color:#bfe3ff">📄 ${esc(a.relativePath)}</span>
+            <span>${a.size} bytes</span>
+          </div>
+        `).join('')}
+      </div>
+    </div>` : (isCompleted ? `<div style="margin:4px 0;font-size:0.76rem;color:var(--mute)">Artifacts: <span class="tag">Plan & Report Only (0 files written to disk)</span></div>` : '')}
+    <div class="row mono mute" style="font-size:0.78rem">
+      <span>Progress: ${completedSubs} of ${subtasks.length} subtask(s) completed</span>
+      <span>${pct}%</span>
+    </div>
+    ${bar({ status: w.status, progress: pct })}
+
+    ${w.error ? `<div style="color:var(--err);font-size:0.82rem;padding:6px 10px;background:rgba(255,77,125,0.08);border:1px solid rgba(255,77,125,0.3);border-radius:8px;margin-top:6px">⚠ ${esc(w.error)}</div>` : ''}
+
+    <div class="row" style="margin-top:6px">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        ${isQueued ? `<button class="btn sm pri" data-act="exec-wf" data-id="${w.id}">Execute Workflow</button>` : ''}
+        ${isRunning ? `<button class="btn sm" disabled style="color:var(--blue)">Executing Workflow (Polling active)...</button>` : ''}
+        ${isFailed ? `<button class="btn sm pri" data-act="exec-wf" data-id="${w.id}">Retry / Re-run Workflow</button>` : ''}
+        <button class="btn sm" data-act="refresh-wf" data-id="${w.id}">Refresh Details</button>
+      </div>
+      <button class="btn sm" data-act="del-wf" data-id="${w.id}">Delete Workflow</button>
+    </div>
+
+    <!-- Visually nested child subtasks -->
+    <div class="wf-subtasks">
+      <div class="row mono mute" style="font-size:0.75rem;font-weight:600;padding-bottom:2px">
+        <span>SUBTASKS GRAPH (${subtasks.length} SEQUENCED TASKS)</span>
+        <span>DEPENDENCY ORDER</span>
+      </div>
+      ${subtasks.length ? subtasks.map((s, idx) => {
+        let deps = [];
+        try { deps = JSON.parse(s.depends_on || '[]'); } catch { deps = []; }
+        const depStatusList = deps.map(depId => {
+          const parentSub = subtasks.find(x => x.id === depId) || S.tasks.find(x => x.id === depId);
+          const st = parentSub ? parentSub.status : 'unknown';
+          let col = 'var(--mute)';
+          if (st === 'completed' || st === 'done') col = 'var(--ok)';
+          else if (st === 'running' || st === 'progress') col = 'var(--blue)';
+          else if (st === 'failed') col = 'var(--err)';
+          return `<span style="color:${col}">#${depId} (${st})</span>`;
+        });
+        const depText = deps.length ? `Depends on: ${depStatusList.join(', ')}` : 'No dependencies (Root)';
+        const agentObj = ag(s.agent);
+
+        return `<div class="wf-subtask" id="task-card-${s.id}">
+          <div class="row">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <span class="tag">Step ${idx + 1}</span>
+              <b>#${s.id} · ${agentObj.icon} ${agentObj.name}: ${esc(s.title)}</b>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px">
+              ${s.current_step ? `<span class="tag">Step: ${esc(s.current_step)}</span>` : ''}
+              ${pill(s.status)}
+            </div>
+          </div>
+          <div class="row mono mute" style="font-size:0.74rem;margin:4px 0">
+            <span>${depText}</span>
+            <span>${s.progress || 0}%</span>
+          </div>
+          ${bar(s)}
+          ${s.error ? `<div style="color:var(--err);font-size:0.78rem;padding:4px 8px;background:rgba(255,77,125,0.08);border:1px solid rgba(255,77,125,0.25);border-radius:6px;margin-top:6px">⚠ ${esc(s.error)}</div>` : ''}
+          ${s.result ? `<div style="margin-top:6px">
+            ${s.result.includes('<svg') ? `<div style="background:#0a0b26;border:1px solid var(--line);border-radius:8px;padding:8px;margin-bottom:6px;display:flex;justify-content:center;overflow:hidden">${s.result.slice(s.result.indexOf('<svg'), s.result.indexOf('</svg>')+6)}</div>` : ''}
+            <div style="background:#050616;border:1px solid var(--line);border-radius:6px;padding:8px;max-height:160px;overflow-y:auto;font-family:var(--mono);font-size:0.76rem;white-space:pre-wrap;color:#bfe3ff"><code>${esc(s.result)}</code></div>
+          </div>` : ''}
+        </div>`;
+      }).join('') : `<div class="empty" style="padding:10px">No subtasks found for this workflow.</div>`}
+    </div>
+
+    <!-- Consolidated deliverable block (when parent completed and has result) -->
+    ${(isCompleted && w.result) ? `<div style="margin-top:14px;background:rgba(14,16,48,0.9);border:1px solid var(--ok);border-radius:10px;padding:12px 14px">
+      <div class="row" style="margin-bottom:8px">
+        <b style="color:var(--ok);font-size:0.95rem">✓ Consolidated Workflow Deliverable</b>
+        <span class="pill s-done">Completed</span>
+      </div>
+      <div style="background:#050616;border:1px solid var(--line);border-radius:8px;padding:12px;max-height:320px;overflow-y:auto;font-family:var(--mono);font-size:0.8rem;white-space:pre-wrap;color:#e6e9ff"><code>${esc(w.result)}</code></div>
+    </div>` : ''}
+  </div>`;
+}
+
+// ---- Views ----
+const views={
+dashboard(){
+ const recent=S.tasks.slice(0,4);
+ const ol=S.ollama||{connected:false,models:[]};
+ const gemini=(S.providers||[]).find(p=>p.id==='gemini');
+ const isGeminiOk=gemini&&gemini.connected;
+ let codingStatus=NC;
+ if(isGeminiOk&&ol.connected&&ol.hasModels) codingStatus=`<span class="pill s-done">Connected (Gemini + Ollama)</span>`;
+ else if(isGeminiOk) codingStatus=`<span class="pill s-done">Connected (Gemini Cloud)</span>`;
+ else if(ol.connected&&ol.hasModels) codingStatus=`<span class="pill s-done">Connected (${esc(ol.models[0])})</span>`;
+ else if(ol.connected) codingStatus=`<span class="pill s-pending" title="Ollama connected, but no models installed">Ollama (No Models)</span>`;
+ let connCount=0;
+ if(isGeminiOk||(ol.connected&&ol.hasModels)) connCount++;
+ if(isGeminiOk) connCount++;
+ const wfCount=S.tasks.filter(t=>t.agent==='workflow'&&!t.parent_id).length;
+ return `<h1>Dashboard</h1><p class="sub">A local overview. ${isGeminiOk?'Coding and Research agents are connected to Google Gemini Cloud & Wikipedia API.':ol.connected?'Coding Agent is connected to local Ollama (127.0.0.1:11434).':'No AI services connected.'}</p>
+ <div class="grid stats">
+  <div class="card stat b"><b>${S.tasks.length}</b><span>Total tasks</span></div>
+  <div class="card stat p"><b>${countCat('running')}</b><span>Running</span></div>
+  <div class="card stat" style="border-color:#a45bff"><b style="color:#e0a0ff">${countCat('paused')}</b><span>Paused</span></div>
+  <div class="card stat g"><b>${countCat('completed')}</b><span>Completed</span></div>
+  <div class="card stat" style="border-color:var(--blue)"><b style="color:var(--blue)">${wfCount}</b><span>Workflows</span></div>
+  <div class="card stat" style="border-color:${(S.blender&&S.blender.available)?'var(--ok)':'rgba(255,200,87,0.35)'}"><b style="color:${(S.blender&&S.blender.available)?'var(--ok)':'var(--warn)'};font-size:1.15rem">${(S.blender&&S.blender.available)?'ONLINE':'BLOCKED'}</b><span>3D Blender Engine</span></div>
+  <div class="card stat ${connCount?'g':'r'}"><b>${connCount} of ${AGENTS.length}</b><span>Agent(s) connected</span></div></div>
+ <div class="grid cols">
+  <div class="card"><h2>Recent tasks</h2>${recent.length?recent.map(t=>`<div class="task"><div class="row"><span>${esc(t.title)}</span>${pill(t.status)}</div>${bar(t)}</div>`).join(''):empty('No tasks yet','Open Task Manager to create your first task.')}
+   <div style="display:flex;gap:8px;margin-top:10px">
+     <a class="btn sm" href="#tasks" style="text-decoration:none">Go to Task Manager</a>
+     <a class="btn sm pri" href="#workflows" style="text-decoration:none">Open AI Workflows</a>
+   </div></div>
+  <div class="card"><h2>Agents</h2>${AGENTS.map(a=>{
+   let badge = NC;
+   if(a.tier === 'REAL') badge = `<span class="pill s-done">REAL</span>`;
+   else if(a.tier === 'PARTIAL') badge = `<span class="pill s-progress" style="color:var(--warn);border-color:var(--warn)">PARTIAL</span>`;
+   else badge = `<span class="pill s-nc">MOCK</span>`;
+   return `<div class="row" style="padding:7px 0"><span>${a.icon} ${a.name}</span>${badge}</div>`;
+  }).join('')}</div>
+  <div class="card"><h2>Recent activity</h2>${S.logs.length?logHtml(S.logs.slice(0,5)):empty('No activity yet','Events appear here as you use the app.')}</div></div>`},
+agents(){
+ const ol=S.ollama||{connected:false,models:[]};
+ const gemini=(S.providers||[]).find(p=>p.id==='gemini');
+ const isGeminiOk=gemini&&gemini.connected;
+ return `<h1>AI Agents</h1><p class="sub">Audited multi-agent network with verified engine connections and strict operational boundaries.</p>
+ <div class="grid agents">${AGENTS.map(a=>{
+  let statusBadge = '';
+  let engineCard = '';
+  if (a.tier === 'REAL') {
+   statusBadge = `<span class="pill s-done">REAL · OPERATIONAL</span>`;
+   if (a.id === 'coding') {
+    engineCard = `
+     <div style="background:rgba(10,11,38,0.7);border:1px solid ${isGeminiOk?'rgba(61,245,176,0.3)':'var(--line)'};border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:0.8rem">
+       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+         <span class="mono">Google Gemini Cloud:</span>
+         <b style="color:${isGeminiOk?'var(--ok)':'var(--mute)'}">${isGeminiOk?'ONLINE':'NOT VERIFIED'}</b>
+       </div>
+       <div style="color:var(--mute)">${isGeminiOk?`Ready with <b style="color:var(--text)">${gemini.models.length} models</b> (${gemini.maskedKey||'key set'})`:`Key in .env: ${gemini&&gemini.maskedKey?gemini.maskedKey:'Not set'}`}</div>
+       <div style="margin-top:6px;display:flex;gap:6px">
+         <button class="btn sm ${isGeminiOk?'pri':''}" data-act="test-gemini">Test Gemini Cloud</button>
+       </div>
+     </div>
+     <div style="background:rgba(10,11,38,0.7);border:1px solid ${ol.connected?(ol.models&&ol.models.length?'rgba(61,245,176,0.3)':'rgba(255,200,87,0.3)'):'var(--line)'};border-radius:8px;padding:8px 10px;margin-bottom:12px;font-size:0.8rem">
+       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+         <span class="mono">Ollama (127.0.0.1:11434):</span>
+         <b style="color:${ol.connected?'var(--ok)':'var(--err)'}">${ol.connected?'ONLINE':'OFFLINE'}</b>
+       </div>
+       ${ol.connected?`
+         <div style="color:var(--mute)">${ol.models&&ol.models.length?`Models ready: <b style="color:var(--text)">${esc(ol.models.join(', '))}</b>`:`<span style="color:var(--warn)">⚠ Connected, but no models installed.</span> Run <code style="color:#fff;background:#141745;padding:1px 4px;border-radius:4px">ollama pull qwen2.5-coder:3b</code> to download.`}</div>
+       `:`<div style="color:#ffb3c6">${esc(ol.error||'Ollama daemon is not running at 127.0.0.1:11434')}</div>`}
+       <div style="margin-top:6px">
+         <button class="btn sm" data-act="check-ollama">${ol.connected?'Check Local Status':'Connect Local'}</button>
+       </div>
+     </div>`;
+   } else if (a.id === 'research') {
+    engineCard = `
+     <div style="background:rgba(10,11,38,0.7);border:1px solid rgba(61,245,176,0.3);border-radius:8px;padding:8px 10px;margin-bottom:12px;font-size:0.8rem">
+       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+         <span class="mono">Wikipedia API + Gemini:</span>
+         <b style="color:var(--ok)">ONLINE</b>
+       </div>
+       <div style="color:var(--mute)">Live encyclopedic search, article extracts, and citations. No fabricated facts.</div>
+       <div style="margin-top:6px">
+         <button class="btn sm pri" data-act="test-research">Test Research Agent</button>
+       </div>
+     </div>`;
+   }
+  } else if (a.tier === 'PARTIAL') {
+   statusBadge = `<span class="pill s-progress" style="color:var(--warn);border-color:var(--warn)">PARTIALLY CONNECTED</span>`;
+   if (a.id === 'graphics') {
+     const bl = S.blender || { available: false, executable: null, version: null };
+     const blAvailable = Boolean(bl.available);
+     engineCard = `
+      <div style="background:rgba(10,11,38,0.7);border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:0.8rem">
+        <div style="color:var(--mute);margin-bottom:4px">2D Vector Engine: <b style="color:var(--text)">${esc(a.engine)}</b></div>
+        <div style="color:#ffc857;font-size:0.75rem">✓ SVG Vector generation supported.<br>✗ Diffusion image generation requires external API.</div>
+      </div>
+      <div id="blender-3d-panel" style="background:rgba(10,11,38,0.7);border:1px solid ${blAvailable?'rgba(61,245,176,0.3)':'rgba(255,200,87,0.3)'};border-radius:8px;padding:10px;margin-bottom:12px;font-size:0.8rem">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <span class="mono" style="font-weight:600">3D Graphics Generator:</span>
+          ${blAvailable?`<span class="pill s-done">ONLINE · ${esc(bl.mode==='cloud'?'GitHub Actions':(bl.version||'Blender'))}</span>`:`<span class="pill s-pending" style="color:var(--warn);border-color:var(--warn)">BLOCKED / NOT INSTALLED</span>`}
+        </div>
+        <div style="color:var(--mute);margin-bottom:6px">
+          ${blAvailable?(bl.mode==='cloud'?`Cloud Runner: <code style="color:var(--text)">${esc(bl.remote&&bl.remote.repository)}</code>`:`Blender binary: <code style="color:var(--text)">${esc(bl.executable)}</code>`):`<span style="color:#ffb3c6">⚠ Blender executable not found on host. Headless 3D rendering halted.</span>`}
+        </div>
+        <div style="background:#050616;border:1px solid var(--line);border-radius:6px;padding:8px;margin-bottom:8px;font-family:var(--mono);font-size:0.75rem">
+          <div style="font-weight:600;color:var(--text);margin-bottom:4px">3D Pipeline Stages:</div>
+          <div style="color:var(--ok)">✓ 1. Script Generated: Python bpy scene synthesizer ready</div>
+          <div style="color:${blAvailable?'var(--ok)':'var(--warn)'}">${blAvailable?'✓':'✗'} 2. Scene Created: ${blAvailable?(bl.mode==='cloud'?'Remote GitHub Actions scene build':'Headless Blender scene build'):'Blocked (Blender missing)'}</div>
+          <div style="color:${blAvailable?'var(--ok)':'var(--warn)'}">${blAvailable?'✓':'✗'} 3. Render Completed: ${blAvailable?(bl.mode==='cloud'?'Cloud Cycles/Eevee render':'Cycles/Eevee PNG still render'):'Blocked (Blender missing)'}</div>
+          <div style="color:${blAvailable?'var(--ok)':'var(--warn)'}">${blAvailable?'✓':'✗'} 4. Output Verified: ${blAvailable?'File size & PNG magic byte check':'Blocked (Blender missing)'}</div>
+        </div>
+        ${(!blAvailable&&bl.remote&&!bl.remote.configured)?`
+        <div style="background:rgba(20,23,69,0.6);border:1px dashed var(--line);border-radius:6px;padding:6px 8px;margin-bottom:8px;font-size:0.75rem;color:var(--mute)">
+          <b style="color:var(--blue)">☁ To enable free cloud rendering without local Blender:</b><br>
+          Set <code style="color:#fff">GITHUB_REPOSITORY=owner/repo</code> and <code style="color:#fff">GITHUB_TOKEN=ghp_...</code> in local <code style="color:#fff">.env</code>.
+        </div>`:""}
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn sm" data-act="check-blender">Check Blender</button>
+          <button class="btn sm ${blAvailable?'pri':''}" data-act="render-3d">Generate 3D Scene Script</button>
+        </div>
+      </div>`;
+   } else {
+     engineCard = `
+      <div style="background:rgba(10,11,38,0.7);border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:12px;font-size:0.8rem">
+        <div style="color:var(--mute);margin-bottom:4px">Engine: <b style="color:var(--text)">${esc(a.engine)}</b></div>
+        <div style="color:#e0a0ff;font-size:0.75rem">✓ Layout & wireframe generation supported.<br>✗ Full fidelity UI requires design tokens.</div>
+      </div>`;
+   }
+  } else {
+   statusBadge = `<span class="pill s-nc">MOCK · PLANNED</span>`;
+   engineCard = `
+    <div style="background:rgba(10,11,38,0.7);border:1px solid rgba(255,77,125,0.3);border-radius:8px;padding:8px 10px;margin-bottom:12px;font-size:0.8rem">
+      <div style="color:var(--mute);margin-bottom:4px">Engine: <b style="color:var(--text)">${esc(a.engine)}</b></div>
+      <div style="color:#ffb3c6;font-size:0.75rem">⚠ Storyboard planning is supported, but MP4 video rendering requires dedicated video generation models/tools.</div>
+    </div>`;
+  }
+
+  return `<div class="card ag"><div class="row"><div class="ico">${a.icon}</div>${statusBadge}</div>
+   <h3 style="margin:10px 0 2px">${esc(a.name)}</h3>
+   <p style="margin:0 0 10px;color:var(--mute);font-size:0.86rem">${esc(a.desc)}</p>
+   ${engineCard}
+   <div class="row"><span class="mono mute">${S.tasks.filter(t=>t.agent===a.id).length} task(s) assigned</span>
+   <a class="btn sm" href="#tasks" style="text-decoration:none">Create Task</a>
+   </div></div>`;
+ }).join('')}</div>`},
+tasks(){
+ const topTasks=S.tasks.filter(t=>!t.parent_id);
+ const L=topTasks.filter(t=>filter==='all'||isCat(t,filter)||(t.agent==='workflow'&&S.tasks.some(sub=>sub.parent_id===t.id&&isCat(sub,filter))));
+ const chip=(k,n,c)=>`<button class="btn sm ${filter===k?'on':''}" data-act="filter" data-id="${k}" aria-pressed="${filter===k}">${n} (${c})</button>`;
+ return `<h1>Task Manager</h1><p class="sub">${mode==='server'?'Tasks are saved in the local SQLite database.':'Tasks are saved in this browser only.'} Automatic checkpoint recovery is active.</p>
+ <form class="new" id="f" novalidate><input type="text" id="title" placeholder="Describe the task" maxlength="80" aria-label="Task title" aria-describedby="ferr">
+  <select id="agent" aria-label="Agent">${AGENTS.map(a=>`<option value="${a.id}">${a.name}</option>`).join('')}</select>
+  <select id="prio" aria-label="Priority"><option>Medium</option><option>High</option><option>Low</option></select>
+  <button class="btn pri">Create task</button></form>
+ <p class="ferr" id="ferr" role="alert"></p>
+ <div class="chips">${chip('all','All',topTasks.length)}${chip('queued','Queued',topTasks.filter(t=>isCat(t,'queued')).length)}${chip('running','Running',topTasks.filter(t=>isCat(t,'running')).length)}${chip('paused','Paused',topTasks.filter(t=>isCat(t,'paused')).length)}${chip('completed','Completed',topTasks.filter(t=>isCat(t,'completed')).length)}${chip('failed','Failed',topTasks.filter(t=>isCat(t,'failed')).length)}</div>
+ ${L.length?L.map(t=>t.agent==='workflow'?renderWorkflowCard(t):taskCard(t,true)).join(''):topTasks.length?empty('No matching tasks','Choose another filter or create a task.'):empty('No tasks yet','Type a task above and press Create task.')}`},
+workflows(){
+ const workflows=S.tasks.filter(t=>t.agent==='workflow'&&!t.parent_id);
+ const f=window.wfFilter||'all';
+ const filtered=workflows.filter(w=>f==='all'||isCat(w,f));
+ const chip=(k,n,c)=>`<button class="btn sm ${f===k?'on':''}" data-act="wf-filter" data-id="${k}" aria-pressed="${f===k}">${n} (${c})</button>`;
+
+ let previewHtml='';
+ if(previewPlan){
+   const isGemini=previewPlan.source==='gemini';
+   const sourceBadge=isGemini
+     ? '<span class="pill s-done">Plan Source: Gemini Cloud</span>'
+     : '<span class="pill s-progress" style="color:var(--warn);border-color:var(--warn)">Plan Source: Local Heuristic Fallback</span>';
+
+   previewHtml=`<div class="card" style="margin-top:14px;border:1px solid var(--blue);background:rgba(20,23,69,0.7)">
+     <div class="row" style="margin-bottom:8px">
+       <div style="display:flex;align-items:center;gap:8px">
+         <b style="font-size:1.05rem;white-space:pre-wrap;overflow-wrap:anywhere">Plan Preview: "${esc(previewPlan.goal)}"</b>
+         <span class="tag">${esc(previewPlan.priority||'Medium')} Priority</span>
+       </div>
+       ${sourceBadge}
+     </div>
+     <div class="mute" style="margin-bottom:12px;font-size:0.86rem">${esc(previewPlan.plan||'')}</div>
+     <div style="font-weight:600;font-size:0.8rem;color:var(--text);margin-bottom:8px">Proposed Subtasks (${(previewPlan.subtasks||[]).length}):</div>
+     <div style="display:grid;gap:8px;margin-bottom:14px">
+       ${(previewPlan.subtasks||[]).map(s=>{
+         const a=ag(s.agent);
+         const hasDeps=s.depends_on_steps&&s.depends_on_steps.length>0;
+         const depText=hasDeps?`Depends on Step ${s.depends_on_steps.join(', ')}`:'Initial Step (No dependencies)';
+         return `<div style="background:rgba(10,11,38,0.7);border:1px solid var(--line);border-radius:8px;padding:9px 12px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+           <div style="display:flex;align-items:center;gap:8px">
+             <span class="tag" style="color:var(--blue);border-color:var(--blue)">Step ${s.step}</span>
+             <span>${a.icon} <b>${a.name}</b>: ${esc(s.title)}</span>
+           </div>
+           <span class="mono mute" style="font-size:0.75rem">${depText}</span>
+         </div>`;
+       }).join('')}
+     </div>
+     <div class="row">
+       <div style="display:flex;gap:8px">
+         <button class="btn pri sm" data-act="wf-confirm" id="btn-wf-confirm">Confirm & Create Workflow</button>
+         <button class="btn sm" data-act="wf-discard">Discard Preview</button>
+       </div>
+       <small class="mute">Workflow will be created in Queued state. You will execute it explicitly.</small>
+     </div>
+   </div>`;
+ }
+
+ return `<h1>AI Workflows</h1>
+ <p class="sub">Autonomous multi-agent orchestration. Decompose high-level goals into sequenced subtasks, execute across specialized agents, and consolidate final deliverables.</p>
+
+ <div class="card" style="margin-bottom:18px">
+   <h2>Decompose Goal & Plan Workflow</h2>
+   <form id="wf-form" style="display:flex;flex-direction:column;gap:10px;margin-bottom:4px" novalidate>
+     <textarea id="wf-goal" placeholder="Enter high-level goal or detailed prompt (supports long prompts and multiple paragraphs)..." rows="3" maxlength="4000" aria-label="Goal title" style="width:100%;resize:vertical;min-height:76px;line-height:1.45">${previewPlan?esc(previewPlan.goal):''}</textarea>
+     <div style="display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap">
+       <div style="display:flex;gap:8px;align-items:center">
+         <label for="wf-prio" class="mute" style="font-size:0.86rem">Priority:</label>
+         <select id="wf-prio" aria-label="Workflow priority" style="width:auto;min-width:110px">
+           <option ${previewPlan&&previewPlan.priority==='Medium'?'selected':''}>Medium</option>
+           <option ${previewPlan&&previewPlan.priority==='High'?'selected':''}>High</option>
+           <option ${previewPlan&&previewPlan.priority==='Low'?'selected':''}>Low</option>
+         </select>
+       </div>
+       <button type="button" class="btn pri" id="btn-wf-preview" data-act="wf-preview">Preview Plan</button>
+     </div>
+   </form>
+   <p class="ferr" id="wf-ferr" role="alert"></p>
+   ${previewHtml}
+ </div>
+
+ <h2>Active & Completed Workflows (${workflows.length})</h2>
+ <div class="chips">
+   ${chip('all','All',workflows.length)}
+   ${chip('queued','Queued',workflows.filter(w=>isCat(w,'queued')).length)}
+   ${chip('running','Running',workflows.filter(w=>isCat(w,'running')).length)}
+   ${chip('completed','Completed',workflows.filter(w=>isCat(w,'completed')).length)}
+   ${chip('failed','Failed',workflows.filter(w=>isCat(w,'failed')).length)}
+ </div>
+
+ ${filtered.length?filtered.map(w=>renderWorkflowCard(w)).join(''):workflows.length?empty('No matching workflows','Choose another filter or decompose a new goal above.'):empty('No workflows created yet','Enter a goal above and click Preview Plan to create your first multi-agent workflow.')}`;
+},
+tools(){
+ const tools = S.tools || [];
+ const f = window.toolFilter || 'all';
+ const filtered = tools.filter(t => f === 'all' || t.category === f);
+ return `<h1>Free Toolkit & Cloud Integrations</h1>
+ <p class="sub">Audited from <code>expanded_free_open_source_toolkit_100plus.txt</code>. Categorized by license, API costs, and PC RAM feasibility.</p>
+ <div class="grid stats">
+  <div class="card stat g"><b>${tools.filter(t=>t.category==='FOSS').length}</b><span>FOSS (Free/Libre)</span></div>
+  <div class="card stat b"><b>${tools.filter(t=>t.category==='FREE_TIER').length}</b><span>Cloud Free Tiers</span></div>
+  <div class="card stat" style="border-color:#ffc857"><b style="color:#ffc857">${tools.filter(t=>t.category==='PAID_OR_KEY').length}</b><span>Paid / Key Needed</span></div>
+  <div class="card stat r"><b>${tools.filter(t=>t.category==='UNSUPPORTED_OR_HEAVY').length}</b><span>Heavy / Excluded</span></div>
+ </div>
+ <div class="card" style="margin-bottom:16px">
+  <h2>Live Hugging Face Hub Explorer (Tool #101)</h2>
+  <p class="sub" style="margin-bottom:12px">Official free cloud model & dataset discovery. Zero local VRAM/RAM required.</p>
+  <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+    <input type="text" id="hf-search-input" placeholder="Search models (e.g. qwen2.5, deepseek, llama)" style="max-width:340px" value="qwen2.5-coder">
+    <button class="btn pri sm" data-act="search-hf">Search Models</button>
+  </div>
+  <div id="hf-results-container" class="mono" style="font-size:0.8rem;color:var(--mute)">Click "Search Models" to query the live Hugging Face Hub API.</div>
+ </div>
+ <div class="card">
+  <h2>Audited Directory (116 Tools)</h2>
+  <div class="chips" style="margin:10px 0 14px">
+    <button class="btn sm ${f==='all'?'on':''}" data-act="tool-filter" data-id="all">All (${tools.length})</button>
+    <button class="btn sm ${f==='FOSS'?'on':''}" data-act="tool-filter" data-id="FOSS">FOSS (${tools.filter(t=>t.category==='FOSS').length})</button>
+    <button class="btn sm ${f==='FREE_TIER'?'on':''}" data-act="tool-filter" data-id="FREE_TIER">Free Tiers (${tools.filter(t=>t.category==='FREE_TIER').length})</button>
+    <button class="btn sm ${f==='PAID_OR_KEY'?'on':''}" data-act="tool-filter" data-id="PAID_OR_KEY">Paid / Key (${tools.filter(t=>t.category==='PAID_OR_KEY').length})</button>
+    <button class="btn sm ${f==='UNSUPPORTED_OR_HEAVY'?'on':''}" data-act="tool-filter" data-id="UNSUPPORTED_OR_HEAVY">Heavy / Excluded (${tools.filter(t=>t.category==='UNSUPPORTED_OR_HEAVY').length})</button>
+  </div>
+  <div style="display:grid;gap:10px">
+    ${filtered.map(t=>{
+      let pillCol = 'var(--ok)';
+      if(t.category === 'FREE_TIER') pillCol = 'var(--blue)';
+      if(t.category === 'PAID_OR_KEY') pillCol = 'var(--warn)';
+      if(t.category === 'UNSUPPORTED_OR_HEAVY') pillCol = 'var(--err)';
+      return `<div style="background:rgba(10,11,38,0.7);border:1px solid var(--line);border-radius:10px;padding:12px">
+        <div class="row">
+          <div style="display:flex;align-items:center;gap:8px">
+            <b>${esc(t.name)}</b>
+            <span class="tag" style="text-transform:uppercase">${esc(t.type)}</span>
+            <span class="tag" style="color:${pillCol};border-color:${pillCol}">${esc(t.category)}</span>
+          </div>
+          <span class="pill" style="color:${t.status==='integrated'?'var(--ok)':t.status==='rejected'?'var(--err)':'var(--mute)'}">${esc(t.status.toUpperCase())}</span>
+        </div>
+        <div style="color:var(--mute);font-size:0.83rem;margin-top:6px">${esc(t.terms)}</div>
+        <div class="mono" style="font-size:0.75rem;color:${t.category==='UNSUPPORTED_OR_HEAVY'?'var(--err)':'#9399cc'};margin-top:4px">RAM Note: ${esc(t.ramNote)}</div>
+      </div>`;
+    }).join('')}
+  </div>
+ </div>`},
+logs(){
+ const L=S.logs.filter(l=>logFilter==='all'||l.lvl===logFilter);
+ return `<h1>Activity Logs</h1><p class="sub">Entries tagged “sample” are demo data. The rest come from your actions.</p>
+ <div class="row" style="margin-bottom:14px"><span>${['all','info','ok','warn','error'].map(x=>`<button class="btn sm ${logFilter===x?'on':''}" data-act="lf" data-id="${x}" aria-pressed="${logFilter===x}">${x}</button>`).join(' ')}</span>
+ <button class="btn sm" data-act="clearlogs">Clear logs</button></div>
+ <div class="card">${L.length?logHtml(L):empty(S.logs.length?'No '+logFilter+' entries':'Log is empty','Try the “all” filter or create a task to generate activity.')}</div>`},
+settings(){
+ const ol=S.ollama||{connected:false,models:[]};
+ const provs=S.providers||[];
+ return `<h1>Settings</h1><p class="sub">Everything here is stored locally. API keys live exclusively in your local environment or .env file.</p>
+ <div class="grid cols"><div class="card"><h2>Cost control</h2>
+  <div class="set"><div>Free-First mode<small>Blocks paid integrations. Only free, local features are used. On by default.</small></div>
+   <input type="checkbox" id="ff" ${S.settings.freeFirst?'checked':''} aria-label="Free-First mode"></div>
+  <div class="set"><div>Local Ollama Service<small>127.0.0.1:11434 (Local-only inference for Coding Agent, zero cloud tokens)</small></div>
+   ${ol.connected?(ol.models&&ol.models.length?`<span class="pill s-done">Connected (${esc(ol.models.join(', '))})</span>`:`<span class="pill s-pending">Online (0 models)</span>`):NC}</div>
+   <div class="set"><div>Blender 3D Graphics Engine<small>Headless Python 3D renderer (bpy). Zero cloud API calls or costs.</small></div>
+    ${(S.blender&&S.blender.available)?`<span class="pill s-done">Online (${esc(S.blender.version||'Blender')})</span>`:`<span class="pill s-pending" style="color:var(--warn);border-color:var(--warn)">Not Installed (Blocked)</span>`}</div>
+  <div class="set"><div>Paid services<small>${S.settings.freeFirst?'Blocked by Free-First mode.':'Still off. Nothing paid is added without your approval.'}</small></div><span class="pill s-pending">off</span></div></div>
+ <div class="card"><h2>Local data</h2>
+  <div class="set"><div>Storage<small>${mode==='server'?'Saved in a SQLite database by the local backend.':storageOk?'Saved in this browser (localStorage). Backend not detected.':'Unavailable. Changes are not being saved.'}</small></div></div>
+  <div class="set"><div>Reset demo data<small>Deletes your tasks and logs and restores the samples.</small></div><button class="btn sm" data-act="reset">Reset</button></div></div>
+ <div class="card" style="grid-column:1 / -1"><h2>AI Providers & Cloud Integration</h2>
+  <p class="sub" style="margin-bottom:12px">Modular provider system. Keys are stored only in environment variables or your local <code>.env</code> file (never exposed in client code or Git).</p>
+  ${provs.length?provs.map(p=>{
+   let badge='<span class="pill s-nc">Offline</span>';
+   if(p.status==='connected') badge=`<span class="pill s-done">Connected (${p.models.length} model${p.models.length===1?'':'s'})</span>`;
+   else if(p.status==='no_models') badge='<span class="pill s-pending">Online (0 models)</span>';
+   else if(p.status==='missing_key') badge='<span class="pill s-nc">Key Not Set</span>';
+   else if(p.status==='error') badge='<span class="pill s-nc" style="color:var(--err)">Error</span>';
+   return `<div class="set" style="align-items:flex-start;padding:12px 0">
+    <div style="flex:1">
+     <div style="display:flex;align-items:center;gap:8px;font-weight:600">
+      <span>${esc(p.name)}</span>
+      <span class="tag" style="text-transform:uppercase">${esc(p.type)}</span>
+      ${p.maskedKey?`<span class="tag" style="color:var(--ok)">Key: ${esc(p.maskedKey)}</span>`:`<span class="tag">${esc(p.envVar)}</span>`}
+     </div>
+     <small style="margin-top:4px;color:var(--mute)">${esc(p.terms)}</small>
+     ${p.error?`<div style="color:var(--err);font-size:0.8rem;margin-top:4px">⚠ ${esc(p.error)}</div>`:''}
+     ${p.models&&p.models.length?`<div style="color:var(--mute);font-size:0.75rem;margin-top:3px">Models: ${esc(p.models.slice(0,6).join(', '))}${p.models.length>6?` (+${p.models.length-6} more)`:''}</div>`:''}
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+     ${badge}
+     <button class="btn sm" data-act="check-p" data-id="${p.id}">Test Health</button>
+    </div></div>`;
+  }).join(''):'<div class="mute mono">Loading providers...</div>'}
+ </div></div>`}
+};
+
+// ---- Render & routing ----
+let cur='dashboard';
+function render(){
+ $('#nav').innerHTML=SECTIONS.map(([k,n])=>`<a href="#${k}" class="${k===cur?'on':''}" ${k===cur?'aria-current="page"':''}><svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[k]}</svg>${n}</a>`).join('');
+ let html='';
+ if(notice)html+=`<div class="banner err" role="alert">⚠ ${esc(notice)}</div>`;
+ const gemini=(S.providers||[]).find(p=>p.id==='gemini');
+ const isGeminiOk=gemini&&gemini.connected;
+ const ol=S.ollama||{connected:false,models:[]};
+ const aiText=isGeminiOk?'Google Gemini Cloud connected (free tier).':(ol.connected&&ol.hasModels?'Local Ollama connected.':'No AI provider connected.');
+ html+=`<div class="banner">${mode==='server'?'Backend connected (local SQLite).':'Backend not detected: using browser storage.'} ${aiText} Free-First mode active (zero paid API calls).</div>`;
+ $('#view').innerHTML=html+views[cur]();
+}
+function route(){const h=location.hash.slice(1);if(h!=='workflows'&&h!=='tasks'){stopWorkflowPolling();}cur=views[h]?h:'dashboard';window.scrollTo(0,0);render()}
+addEventListener('hashchange',route);
+
+// ---- Backend (optional): used automatically when served by server.js ----
+let mode='local';
+async function req(method,url,body){
+ const h={'X-Requested-With':'beyond'};if(body)h['Content-Type']='application/json';
+ const r=await fetch(url,{method,headers:h,body:body?JSON.stringify(body):undefined});
+ const d=await r.json().catch(()=>({}));
+ if(!r.ok)throw new Error(d.error||('Request failed ('+r.status+')'));
+ return d;
+}
+async function refresh(){const d=await req('GET','/api/state');S.tasks=d.tasks;S.logs=d.logs;S.settings=d.settings;if(d.ollama)S.ollama=d.ollama;if(d.providers)S.providers=d.providers;if(d.tools)S.tools=d.tools;if(d.categories)S.categories=d.categories;if(d.blender)S.blender=d.blender;}
+async function detectBackend(){
+ if(location.protocol==='file:')return;
+ try{const c=new AbortController();setTimeout(()=>c.abort(),1500);
+  const r=await fetch('/api/health',{signal:c.signal});
+  if(r.ok&&(await r.json()).app==='project-beyond'){await refresh();mode='server';notice=''}
+ }catch(e){}
+}
+// act(): run the server call in server mode, otherwise the local (browser storage) change
+async function act(remote,local){
+ if(mode==='server'){try{await remote();await refresh();notice=''}catch(e){notice='Backend error: '+e.message+'. Your change was not saved.'}}
+ else{local();save()}
+ render();
+}
+
+// ---- Events ----
+document.addEventListener('submit',e=>{
+ if(e.target.id==='wf-form'){e.preventDefault();const btn=$('#btn-wf-preview');if(btn)btn.click();return}
+ if(e.target.id!=='f')return;e.preventDefault();
+ const inp=$('#title'),title=inp.value.trim(),err=$('#ferr');
+ if(title.length<3){err.textContent=title?'Task title needs at least 3 characters.':'Enter a task title before creating a task.';inp.setAttribute('aria-invalid','true');inp.focus();return}
+ const body={title,agent:$('#agent').value,priority:$('#prio').value};filter='all';
+ act(()=>req('POST','/api/tasks',body),()=>{S.tasks.unshift({id:S.nextId++,...body,status:'pending'});log('info',`Task created: "${title}" for ${ag(body.agent).name} (not executed, agent not connected)`)});
+});
+document.addEventListener('input',e=>{
+ if(e.target.id==='title'){e.target.removeAttribute('aria-invalid');$('#ferr').textContent=''}
+ if(e.target.id==='wf-goal'){e.target.removeAttribute('aria-invalid');const fe=$('#wf-ferr');if(fe)fe.textContent=''}
+});
+document.addEventListener('keydown',e=>{
+ if(e.target&&e.target.id==='wf-goal'&&(e.ctrlKey||e.metaKey)&&e.key==='Enter'){
+  e.preventDefault();
+  const btn=$('#btn-wf-preview');
+  if(btn)btn.click();
+ }
+});
+document.addEventListener('change',e=>{
+ const el=e.target;
+ if(el.dataset.act==='status'){const t=S.tasks.find(t=>t.id===+el.dataset.id),v=el.value;
+  if(t)act(()=>req('PATCH','/api/tasks/'+t.id,{status:v}),()=>{t.status=v;log('info',`"${t.title}" set to ${STATUS[v]}`)})}
+ if(el.id==='ff'){const v=el.checked;act(()=>req('PUT','/api/settings',{freeFirst:v}),()=>{S.settings.freeFirst=v;log(v?'ok':'warn','Free-First mode '+(v?'enabled':'disabled'))})}
+});
+document.addEventListener('click',e=>{
+ const b=e.target.closest('button[data-act]');if(!b)return;const a=b.dataset.act,id=b.dataset.id;
+ if(a==='filter'){filter=id;return render()}
+ if(a==='lf'){logFilter=id;return render()}
+ if(a==='check-ollama'){
+  b.disabled=true;b.textContent='Checking...';
+  return req('GET','/api/ollama/status').then(st=>{
+   S.ollama=st;
+   if(st.connected){
+    if(st.models&&st.models.length){
+     notice='';
+     log('ok',`Coding Agent: Ollama online with model(s) ${st.models.join(', ')}`);
+    } else {
+     notice='Ollama is online at 127.0.0.1:11434, but no models are installed yet.';
+     log('warn','Coding Agent: Ollama connected, 0 models installed. Next step: ollama pull qwen2.5-coder:3b');
+    }
+   } else {
+    notice='Coding Agent connection failed: '+(st.error||'Ollama offline');
+    log('error','Coding Agent: '+(st.error||'Connection failed'));
+   }
+   render();
+  }).catch(err=>{
+   notice='Ollama check error: '+err.message;
+   render();
+  });
+ }
+ if(a==='check-blender'){
+  b.disabled=true;b.textContent='Checking...';
+  return req('GET','/api/blender/status').then(res=>{
+   S.blender=res;
+   if(res.available){
+    notice='';
+    log('ok',`3D Graphics: Blender engine online (${res.version||res.executable})`);
+   } else {
+    notice='Blender executable not installed on host. 3D rendering pipeline halted.';
+    log('warn','3D Graphics: Blender not found. Python scene script generation is available, but rendering is blocked.');
+   }
+   render();
+  }).catch(err=>{
+   notice='Blender check error: '+err.message;
+   render();
+  });
+ }
+ if(a==='render-3d'){
+  b.disabled=true;b.textContent='Generating 3D Scene...';
+  return req('POST','/api/blender/render',{goal:'Generate 3D stylized gemstone scene'}).then(async res=>{
+   await refresh();
+   if(res.ok){
+    notice='';
+    log('ok','3D Graphics: Render completed and verified!');
+   } else if(res.status==='blocked'){
+    notice='3D Graphics Generator: Python scene script created, but rendering is BLOCKED because Blender is not installed.';
+    log('warn',`3D Graphics: Script synthesized (${res.artifacts?res.artifacts[0].size:0} bytes), rendering blocked (no Blender).`);
+   } else {
+    notice='3D Scene generation failed: '+(res.error||res.reason);
+    log('error','3D Graphics: '+(res.error||res.reason));
+   }
+   render();
+  }).catch(err=>{
+   notice='3D render error: '+err.message;
+   render();
+  });
+ }
+ if(a==='check-p'){
+  b.disabled=true;b.textContent='Checking...';
+  return req('POST','/api/providers/'+id).then(st=>{
+   const idx=(S.providers||[]).findIndex(x=>x.id===id);
+   if(idx!==-1) S.providers[idx]=st;
+   if(st.connected){
+    notice='';
+    log('ok',`Provider "${st.name}" verified connected (${st.models.length} models)`);
+   } else if(st.status==='missing_key'){
+    notice=`Provider "${st.name}" is not configured. Set ${st.envVar} in your environment or local .env file.`;
+    log('warn',`Provider "${st.name}": ${st.envVar} not configured.`);
+   } else {
+    notice=`Provider "${st.name}" check failed: ${st.error||'Error'}`;
+    log('error',`Provider "${st.name}": ${st.error||'Health check failed'}`);
+   }
+   render();
+  }).catch(err=>{
+   notice=`Provider health check error: ${err.message}`;
+   render();
+  });
+ }
+ if(a==='run-gemini'){
+  b.disabled=true;b.textContent='Running with Gemini...';
+  return req('POST','/api/tasks/'+id+'/execute',{provider:'gemini'}).then(async res=>{
+   await refresh();
+   notice='';
+   render();
+  }).catch(err=>{
+   notice='Gemini task execution error: '+err.message;
+   return refresh().then(render);
+  });
+ }
+ if(a==='pause-task'){
+  b.disabled=true;b.textContent='Pausing...';
+  return req('POST','/api/tasks/'+id+'/pause').then(async res=>{
+   await refresh();
+   notice='';
+   render();
+  }).catch(err=>{
+   notice='Pause error: '+err.message;
+   return refresh().then(render);
+  });
+ }
+ if(a==='resume-task'){
+  b.disabled=true;b.textContent='Resuming...';
+  return req('POST','/api/tasks/'+id+'/resume').then(async res=>{
+   await refresh();
+   notice='';
+   render();
+  }).catch(err=>{
+   notice='Resume error: '+err.message;
+   return refresh().then(render);
+  });
+ }
+ if(a==='retry-task'){
+  b.disabled=true;b.textContent='Retrying...';
+  return req('POST','/api/tasks/'+id+'/retry').then(async res=>{
+   await refresh();
+   notice='';
+   render();
+  }).catch(err=>{
+   notice='Retry error: '+err.message;
+   return refresh().then(render);
+  });
+ }
+ if(a==='test-gemini'){
+  b.disabled=true;b.textContent='Testing...';
+  return req('POST','/api/providers/gemini/test').then(async res=>{
+   await refresh();
+   if(res.ok){
+    notice='';
+    alert('Gemini Cloud Test Succeeded!\n\nModel: ' + res.model + '\nOutput: ' + res.text);
+   } else {
+    notice='Gemini Cloud Test failed: '+res.error;
+   }
+   render();
+  }).catch(err=>{
+   notice='Gemini Cloud Test error: '+err.message;
+   render();
+  });
+ }
+ if(a==='test-research'){
+  b.disabled=true;b.textContent='Searching sources...';
+  return req('POST','/api/agents/research/test',{topic:'Artificial intelligence'}).then(async res=>{
+   await refresh();
+   if(res.ok){
+    notice='';
+    const titles = (res.sources||[]).map(s=>'• ' + s.title + ' (' + s.url + ')').join('\n');
+    alert('Research Agent Live Test Succeeded!\n\nVerified Sources Gathered (' + res.sourcesCount + '):\n' + titles + '\n\nSynthesized Output:\n' + (res.synthesis || 'Knowledge indexed.'));
+   } else {
+    notice='Research Agent test failed: '+(res.error||'Unknown error');
+   }
+   render();
+  }).catch(err=>{
+   notice='Research Agent test error: '+err.message;
+   render();
+  });
+ }
+ if(a==='wf-filter'){
+  window.wfFilter = id;
+  return render();
+ }
+ if(a==='wf-preview'){
+  const inp=$('#wf-goal');
+  const goal=inp?inp.value.trim():'';
+  const ferr=$('#wf-ferr');
+  if(!goal||goal.length<3){
+   if(ferr) ferr.textContent=goal?'Goal must be at least 3 characters.':'Enter a goal before previewing.';
+   if(inp){inp.setAttribute('aria-invalid','true');inp.focus();}
+   return;
+  }
+  if(goal.length>4000){
+   if(ferr) ferr.textContent='Goal must be 3 to 4000 characters.';
+   if(inp){inp.setAttribute('aria-invalid','true');inp.focus();}
+   return;
+  }
+  b.disabled=true;b.textContent='Decomposing Goal...';
+  if(ferr) ferr.textContent='';
+  const prioEl=$('#wf-prio');
+  const priority=prioEl?prioEl.value:'Medium';
+  return req('POST','/api/workflows/decompose',{title:goal,goal:goal,priority}).then(res=>{
+   previewPlan=res.plan;
+   previewPlan.goal=res.goal||goal;
+   previewPlan.priority=priority;
+   notice='';
+   render();
+  }).catch(err=>{
+   b.disabled=false;b.textContent='Preview Plan';
+   if(ferr) ferr.textContent='Planning error: '+err.message;
+  });
+ }
+ if(a==='wf-discard'){
+  previewPlan=null;
+  return render();
+ }
+ if(a==='wf-confirm'){
+  if(!previewPlan)return;
+  b.disabled=true;b.textContent='Creating Workflow...';
+  return req('POST','/api/workflows',{title:previewPlan.goal,goal:previewPlan.goal,priority:previewPlan.priority||'Medium',plan:previewPlan}).then(async res=>{
+   previewPlan=null;
+   await refresh();
+   notice='';
+   render();
+  }).catch(err=>{
+   b.disabled=false;b.textContent='Confirm & Create Workflow';
+   notice='Workflow creation error: '+err.message;
+   render();
+  });
+ }
+ if(a==='exec-wf'){
+  b.disabled=true;b.textContent='Starting execution...';
+  stopWorkflowPolling();
+  workflowPollCount=0;
+  workflowPollTimer=setInterval(async()=>{
+   workflowPollCount++;
+   if(workflowPollCount>MAX_WORKFLOW_POLLS||(cur!=='workflows'&&cur!=='tasks')){stopWorkflowPolling();return;}
+   try{
+    await refresh();
+    const pt=S.tasks.find(x=>x.id===+id);
+    if(!pt||pt.status==='completed'||pt.status==='done'||pt.status==='failed'){stopWorkflowPolling();}
+    render();
+   }catch{}
+  },2500);
+
+  return req('POST','/api/workflows/'+id+'/execute',{provider:'gemini'}).then(async res=>{
+   stopWorkflowPolling();
+   await refresh();
+   notice='';
+   render();
+  }).catch(async err=>{
+   stopWorkflowPolling();
+   await refresh();
+   if(err.message.includes('409')||err.message.includes('already executing')){
+    notice=`Workflow #${id} is already executing. Duplicate execution prevented.`;
+   }else if(err.message.includes('404')){
+    notice=`Workflow #${id} not found.`;
+   }else{
+    notice=`Workflow execution error: ${err.message}`;
+   }
+   render();
+  });
+ }
+ if(a==='refresh-wf'){
+  b.disabled=true;b.textContent='Refreshing...';
+  return req('GET','/api/workflows/'+id).then(async res=>{
+   await refresh();
+   notice='';
+   render();
+  }).catch(err=>{
+   notice=`Failed to refresh workflow #${id}: ${err.message}`;
+   render();
+  });
+ }
+ if(a==='del-wf'){
+  if(!confirm(`Delete workflow #${id} and all its subtasks?`))return;
+  b.disabled=true;b.textContent='Deleting...';
+  return act(async()=>{
+   await req('DELETE','/api/tasks/'+id);
+  },()=>{
+   S.tasks=S.tasks.filter(x=>x.id!==+id&&x.parent_id!==+id);
+   log('info',`Workflow #${id} and subtasks deleted.`);
+  });
+ }
+ if(a==='tool-filter'){
+  window.toolFilter = id;
+  return render();
+ }
+ if(a==='search-hf'){
+  const inp = $('#hf-search-input');
+  const q = inp ? inp.value.trim() : 'qwen';
+  b.disabled = true; b.textContent = 'Searching...';
+  return req('GET', '/api/tools/hf/models?q=' + encodeURIComponent(q)).then(res=>{
+    b.disabled = false; b.textContent = 'Search Models';
+    const container = $('#hf-results-container');
+    if(!container) return;
+    if(!res.ok || !res.models || !res.models.length){
+      container.innerHTML = '<span style="color:var(--warn)">No models found for query: ' + esc(q) + '</span>';
+      return;
+    }
+    container.innerHTML = `<div style="display:grid;gap:6px;margin-top:8px">${res.models.map(m=>`
+      <div style="display:flex;justify-content:space-between;padding:6px 8px;background:#050616;border-radius:6px;border:1px solid var(--line)">
+        <a href="${esc(m.url)}" target="_blank" rel="noopener" style="color:var(--blue);text-decoration:none">${esc(m.id)}</a>
+        <span class="mute">${m.downloads.toLocaleString()} downloads · ${m.likes} likes · [${esc(m.pipeline_tag)}]</span>
+      </div>
+    `).join('')}</div>`;
+  }).catch(err=>{
+    b.disabled = false; b.textContent = 'Search Models';
+    const container = $('#hf-results-container');
+    if(container) container.innerHTML = '<span style="color:var(--err)">Search error: ' + esc(err.message) + '</span>';
+  });
+ }
+ if(a==='del'){const t=S.tasks.find(t=>t.id===+id);return act(()=>req('DELETE','/api/tasks/'+id),()=>{S.tasks=S.tasks.filter(x=>x.id!==+id);if(t)log('info',`Task deleted: "${t.title}"`)})}
+ if(a==='clearlogs')return act(()=>req('DELETE','/api/logs'),()=>{S.logs=[]});
+ if(a==='reset'){if(!confirm('Delete all tasks and logs and restore the samples?'))return;filter='all';logFilter='all';return act(()=>req('POST','/api/reset'),()=>{S=seed();notice=''})}
+});
+
+(async()=>{S=load();await detectBackend();route()})();
+</script>
+</body>
+</html>

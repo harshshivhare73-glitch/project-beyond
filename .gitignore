@@ -1,0 +1,10 @@
+data/
+*.db
+*.db-*
+*.db.*
+.env
+.env.*
+!.env.example
+node_modules/
+*.log
+workspace/

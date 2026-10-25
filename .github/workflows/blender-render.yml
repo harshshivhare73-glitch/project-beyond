@@ -1,0 +1,95 @@
+name: Remote Blender 3D Renderer
+
+on:
+  workflow_dispatch:
+    inputs:
+      scene_title:
+        description: 'Title or goal for 3D scene'
+        required: false
+        default: 'Project Beyond 3D Scene'
+      script_content:
+        description: 'Base64 encoded Python bpy script'
+        required: true
+      resolution_x:
+        description: 'Render resolution width (pixels)'
+        required: false
+        default: '800'
+      resolution_y:
+        description: 'Render resolution height (pixels)'
+        required: false
+        default: '600'
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  render:
+    name: Headless Blender Render
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Blender on Runner
+        run: |
+          echo "Updating apt package index..."
+          sudo apt-get update -qq
+          echo "Installing Blender & Mesa OpenGL libraries..."
+          sudo apt-get install -y --no-install-recommends blender libglu1-mesa
+          echo "Blender installation complete. Probing version:"
+          blender --version
+
+      - name: Prepare Working Directory & Script
+        run: |
+          mkdir -p output
+          echo "Decoding Python scene generation script..."
+          echo "${{ github.event.inputs.script_content }}" | base64 -d > scene.py
+          head -n 25 scene.py
+
+      - name: Execute Headless Blender Render
+        run: |
+          echo "Starting headless render via Blender..."
+          blender -b -P scene.py
+
+      - name: Verify Rendered Outputs
+        run: |
+          echo "Locating and verifying generated files..."
+          # Look in output/ directory or root directory
+          if [ -f "output/scene.blend" ]; then
+            cp output/scene.blend ./scene.blend
+          fi
+          if [ -f "output/render.png" ]; then
+            cp output/render.png ./render.png
+          fi
+
+          if [ ! -s "scene.blend" ]; then
+            echo "::error::scene.blend missing or 0 bytes"
+            exit 1
+          fi
+
+          if [ ! -s "render.png" ]; then
+            echo "::error::render.png missing or 0 bytes"
+            exit 1
+          fi
+
+          # Verify PNG magic byte signature (0x89 0x50 0x4E 0x47)
+          PNG_HEX=$(head -c 4 render.png | xxd -p)
+          if [ "$PNG_HEX" != "89504e47" ]; then
+            echo "::error::render.png does not have valid PNG header (got $PNG_HEX)"
+            exit 1
+          fi
+
+          echo "✓ Verification successful: scene.blend ($(stat -c%s scene.blend) bytes) and render.png ($(stat -c%s render.png) bytes)."
+
+      - name: Upload Verified 3D Render Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: blender-render-artifacts
+          path: |
+            render.png
+            scene.blend
+          if-no-files-found: error
+          retention-days: 1
