@@ -8,8 +8,9 @@ on:
         required: false
         default: 'Project Beyond 3D Scene'
       script_content:
-        description: 'Base64 encoded Python bpy script'
-        required: true
+        description: 'Base64 encoded Python bpy script (leave AUTO or empty to use repo test_scene.b64)'
+        required: false
+        default: 'AUTO'
       resolution_x:
         description: 'Render resolution width (pixels)'
         required: false
@@ -43,11 +44,37 @@ jobs:
           blender --version
 
       - name: Prepare Working Directory & Script
+        env:
+          SCRIPT_CONTENT: ${{ github.event.inputs.script_content }}
         run: |
           mkdir -p output
-          echo "Decoding Python scene generation script..."
-          echo "${{ github.event.inputs.script_content }}" | base64 -d > scene.py
-          head -n 25 scene.py
+          echo "Preparing Python scene generation script..."
+
+          if [ -z "$SCRIPT_CONTENT" ] || [ "$SCRIPT_CONTENT" = "AUTO" ] || [ "$SCRIPT_CONTENT" = "DEFAULT" ]; then
+            echo "Using repository test_scene.b64 payload..."
+            base64 -d test_scene.b64 > scene.py
+          else
+            echo "Decoding provided script_content input..."
+            echo "$SCRIPT_CONTENT" | base64 -d > scene.py
+          fi
+
+          # Sanitize legacy or mistakenly pasted bpy.mathutils references
+          if grep -q "bpy\.mathutils" scene.py; then
+            echo "::warning::Legacy 'bpy.mathutils' detected in decoded script. Auto-correcting to 'mathutils'..."
+            sed -i 's/bpy\.mathutils/mathutils/g' scene.py
+            if ! grep -q "import mathutils" scene.py; then
+              sed -i '1s/^/import mathutils\n/' scene.py
+            fi
+          fi
+
+          # Strict pre-flight verification: ensure no bpy.mathutils remains before running Blender
+          if grep -q "bpy\.mathutils" scene.py; then
+            echo "::error::scene.py still contains invalid bpy.mathutils references"
+            exit 1
+          fi
+
+          echo "✓ Pre-flight verification passed: scene.py contains no bpy.mathutils references."
+          head -n 30 scene.py
 
       - name: Execute Headless Blender Render
         run: |
