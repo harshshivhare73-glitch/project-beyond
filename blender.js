@@ -305,6 +305,13 @@ function generate3DSceneScript(options = {}) {
 import bpy
 import math
 import os
+import sys
+
+def _pb_excepthook(exc_type, exc_value, exc_traceback):
+    import traceback
+    traceback.print_exception(exc_type, exc_value, exc_traceback)
+    sys.exit(1)
+sys.excepthook = _pb_excepthook
 
 print("[Project Beyond] Starting 3D Scene Generation: ${sceneTitle}")
 
@@ -335,8 +342,17 @@ scene.render.image_settings.file_format = 'PNG'
 scene.render.image_settings.color_mode = 'RGBA'
 scene.render.image_settings.compression = 15
 
+# Resolve output target paths portably (supports local workspace, cloud CI runners, and containers)
 blend_file_path = r"${blendPathEscaped}"
 render_file_path = r"${renderPathEscaped}"
+
+# In CI/GitHub Actions runners or non-Windows runners with Windows drive paths,
+# route outputs to the standard 'output/' directory expected by cloud runners
+if os.environ.get("GITHUB_ACTIONS") or (os.name != 'nt' and (blend_file_path.startswith(('C:', 'c:', 'D:', 'd:')) or '\\\\' in blend_file_path)):
+    out_dir = os.path.abspath("output")
+    os.makedirs(out_dir, exist_ok=True)
+    blend_file_path = os.path.join(out_dir, "scene.blend")
+    render_file_path = os.path.join(out_dir, "render.png")
 
 scene.render.filepath = render_file_path
 

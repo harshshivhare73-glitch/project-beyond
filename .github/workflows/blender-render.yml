@@ -52,19 +52,37 @@ jobs:
       - name: Execute Headless Blender Render
         run: |
           echo "Starting headless render via Blender..."
-          blender -b -P scene.py
+          # Headless render invocation: blender -b -P scene.py
+          blender -b --python-exit-code 1 -P scene.py
 
       - name: Verify Rendered Outputs
         run: |
           echo "Locating and verifying generated files..."
-          # Look in output/ directory or root directory
-          if [ -f "output/scene.blend" ]; then
+          # 1. Check primary output/ directory
+          if [ -s "output/scene.blend" ]; then
             cp output/scene.blend ./scene.blend
           fi
-          if [ -f "output/render.png" ]; then
+          if [ -s "output/render.png" ]; then
             cp output/render.png ./render.png
           fi
 
+          # 2. Fallback search if files were saved in a subfolder or project path
+          if [ ! -s "scene.blend" ]; then
+            FOUND_BLEND=$(find . -maxdepth 5 -name "scene.blend" -size +0c -not -path "*/.git/*" | head -n 1)
+            if [ -n "$FOUND_BLEND" ]; then
+              echo "Found scene.blend at $FOUND_BLEND, copying to workspace root..."
+              cp "$FOUND_BLEND" ./scene.blend
+            fi
+          fi
+          if [ ! -s "render.png" ]; then
+            FOUND_PNG=$(find . -maxdepth 5 -name "render.png" -size +0c -not -path "*/.git/*" | head -n 1)
+            if [ -n "$FOUND_PNG" ]; then
+              echo "Found render.png at $FOUND_PNG, copying to workspace root..."
+              cp "$FOUND_PNG" ./render.png
+            fi
+          fi
+
+          # 3. Strict verification of existence and non-zero size
           if [ ! -s "scene.blend" ]; then
             echo "::error::scene.blend missing or 0 bytes"
             exit 1
