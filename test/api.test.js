@@ -1917,24 +1917,26 @@ test('Bugfix: Workflow decomposition and creation enforce consistent 4000 charac
   assert.ok(shortErr.error.includes('3 to 4000 characters'));
 });
 
-test('Bugfix: Standalone tasks maintain standard 80-character title limit with zero regression', async () => {
-  // Standalone task under 80 chars succeeds
+test('Bugfix: Standalone tasks accept titles up to 4000 characters (typing wall removed)', async () => {
+  // Standalone task with a long title (previously blocked at 80 chars) succeeds
+  const longTitle = 'This standalone task title exceeds the old eighty character limit for single tasks and must now be accepted';
+  assert.ok(longTitle.length > 80 && longTitle.length < 4000);
   const okRes = await call('POST', '/api/tasks', {
-    title: 'Short standalone task title',
+    title: longTitle,
     agent: 'coding',
     priority: 'Medium'
   });
   assert.equal(okRes.status, 201);
 
-  // Standalone task over 80 chars is rejected
+  // Standalone task over 4000 chars is rejected
   const overRes = await call('POST', '/api/tasks', {
-    title: 'This standalone task title exceeds the maximum allowed eighty character limit for single tasks',
+    title: 'A'.repeat(4001),
     agent: 'coding',
     priority: 'Medium'
   });
   assert.equal(overRes.status, 400);
   const overErr = await overRes.json();
-  assert.ok(overErr.error.includes('3 to 80 characters'));
+  assert.ok(overErr.error.includes('3 to 4000 characters'));
 });
 
 test('Bugfix: Dashboard UI includes multiline textarea with expanded character limit and no 80-char restriction', async () => {

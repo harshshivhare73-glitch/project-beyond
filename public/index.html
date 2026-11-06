@@ -511,10 +511,11 @@ tasks(){
  const L=topTasks.filter(t=>filter==='all'||isCat(t,filter)||(t.agent==='workflow'&&S.tasks.some(sub=>sub.parent_id===t.id&&isCat(sub,filter))));
  const chip=(k,n,c)=>`<button class="btn sm ${filter===k?'on':''}" data-act="filter" data-id="${k}" aria-pressed="${filter===k}">${n} (${c})</button>`;
  return `<h1>Task Manager</h1><p class="sub">${mode==='server'?'Tasks are saved in the local SQLite database.':'Tasks are saved in this browser only.'} Automatic checkpoint recovery is active.</p>
- <form class="new" id="f" novalidate><input type="text" id="title" placeholder="Describe the task" maxlength="80" aria-label="Task title" aria-describedby="ferr">
+ <form class="new" id="f" novalidate><input type="text" id="title" placeholder="Describe the task" maxlength="4000" aria-label="Task title" aria-describedby="ferr title-count">
   <select id="agent" aria-label="Agent">${AGENTS.map(a=>`<option value="${a.id}">${a.name}</option>`).join('')}</select>
   <select id="prio" aria-label="Priority"><option>Medium</option><option>High</option><option>Low</option></select>
   <button class="btn pri">Create task</button></form>
+ <p class="mono mute" id="title-count" style="font-size:.75rem;margin:4px 0 0">0 / 4000 characters</p>
  <p class="ferr" id="ferr" role="alert"></p>
  <div class="chips">${chip('all','All',topTasks.length)}${chip('queued','Queued',topTasks.filter(t=>isCat(t,'queued')).length)}${chip('running','Running',topTasks.filter(t=>isCat(t,'running')).length)}${chip('paused','Paused',topTasks.filter(t=>isCat(t,'paused')).length)}${chip('completed','Completed',topTasks.filter(t=>isCat(t,'completed')).length)}${chip('failed','Failed',topTasks.filter(t=>isCat(t,'failed')).length)}</div>
  ${L.length?L.map(t=>t.agent==='workflow'?renderWorkflowCard(t):taskCard(t,true)).join(''):topTasks.length?empty('No matching tasks','Choose another filter or create a task.'):empty('No tasks yet','Type a task above and press Create task.')}`},
@@ -748,7 +749,7 @@ document.addEventListener('submit',e=>{
  act(()=>req('POST','/api/tasks',body),()=>{S.tasks.unshift({id:S.nextId++,...body,status:'pending'});log('info',`Task created: "${title}" for ${ag(body.agent).name} (not executed, agent not connected)`)});
 });
 document.addEventListener('input',e=>{
- if(e.target.id==='title'){e.target.removeAttribute('aria-invalid');$('#ferr').textContent=''}
+ if(e.target.id==='title'){e.target.removeAttribute('aria-invalid');$('#ferr').textContent='';const c=$('#title-count');if(c)c.textContent=e.target.value.length+' / 4000 characters'}
  if(e.target.id==='wf-goal'){e.target.removeAttribute('aria-invalid');const fe=$('#wf-ferr');if(fe)fe.textContent=''}
 });
 document.addEventListener('keydown',e=>{

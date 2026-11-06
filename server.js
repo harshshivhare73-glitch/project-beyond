@@ -210,7 +210,7 @@ function parseMultipart(buffer, boundary) {
   return { file, fields };
 }
 
-const cleanTitle = v => { const t = typeof v === 'string' ? v.trim() : ''; if (t.length < 3 || t.length > 80) throw fail(400, 'Title must be 3 to 80 characters.'); return t; };
+const cleanTitle = v => { const t = typeof v === 'string' ? v.trim() : ''; if (t.length < 3 || t.length > 4000) throw fail(400, 'Title must be 3 to 4000 characters.'); return t; };
 const cleanGoal = v => { const t = typeof v === 'string' ? v.trim() : ''; if (t.length < 3 || t.length > 4000) throw fail(400, 'Goal must be 3 to 4000 characters.'); return t; };
 
 async function api(req, res, p) {
