@@ -3,8 +3,9 @@
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const { DatabaseSync } = require('node:sqlite');
-const { PROVIDERS, listProviders, getAllProviderStatuses } = require('./providers');
+const { PROVIDERS, listProviders, getAllProviderStatuses, assertAllowPaid, isVerifiedFreeGeminiModel } = require('./providers');
 const {
   initOrchestrator, executeOrchestratedTask, pauseTask,
   validateDependencies, resolveDependencyContext,
@@ -14,10 +15,14 @@ const { fetchSources } = require('./research');
 const { TOOLKIT_CATEGORIES, AUDITED_TOOLKIT, searchHuggingFaceModels, searchHuggingFaceDatasets } = require('./tools');
 const { listArtifacts, readArtifact, writeArtifact, resolveWorkspaceDir } = require('./artifacts');
 const { buildProject, planProjectManifest, listProjects } = require('./project_builder');
+const chat = require('./chat');
+const attachments = require('./attachments');
+const ATTACHMENTS_DIR = process.env.ATTACHMENTS_DIR || path.join(__dirname, 'attachments');
+fs.mkdirSync(ATTACHMENTS_DIR, { recursive: true });
 const { detectBlender, generate3DScene, generate3DSceneScript } = require('./blender');
 
 const PORT = Number(process.env.PORT) || 3000;
-const HOST = '127.0.0.1'; // local only: other devices cannot reach this server
+const HOST = '0.0.0.0'; // listen on all interfaces; the Host-header check below still restricts who is served (localhost + private Tailscale network only)
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'data', 'beyond.db');
 const AGENTS = ['coding', 'graphics', 'video', 'sketch', 'research', 'workflow'];
 const PRIORITIES = ['High', 'Medium', 'Low'];
@@ -49,6 +54,29 @@ const setSetting = (k, v) => db.prepare('INSERT INTO settings(key,value) VALUES(
 const addLog = (lvl, msg, sample = 0, t = Date.now()) => db.prepare('INSERT INTO logs(t,lvl,msg,sample) VALUES(?,?,?,?)').run(t, lvl, msg, sample);
 
 initOrchestrator(db, PROVIDERS, addLog);
+chat.initChatTables(db);
+attachments.initAttachmentsTables(db);
+
+// P0 reset protection (Assignment 1, defect 3): a reset is only allowed
+// after a backup has been issued and explicitly confirmed. Backup tokens are
+// single-use, in-memory only, and expire after 10 minutes. They contain
+// tasks/logs/settings only — never provider keys, which are not stored in
+// this database.
+const backupTokens = new Map();
+function createBackup() {
+  return {
+    createdAt: Date.now(),
+    tasks: db.prepare('SELECT * FROM tasks ORDER BY id ASC').all(),
+    logs: db.prepare('SELECT * FROM logs ORDER BY id ASC').all(),
+    settings: db.prepare('SELECT * FROM settings ORDER BY key ASC').all(),
+  };
+}
+function issueBackupToken() {
+  const token = crypto.randomBytes(32).toString('hex');
+  const backup = createBackup();
+  backupTokens.set(token, { backup, expiresAt: Date.now() + 10 * 60 * 1000 });
+  return { token, backup };
+}
 
 function seed() {
   const now = Date.now();
@@ -125,6 +153,63 @@ function readBody(req) {
     req.on('error', reject);
   });
 }
+function readRawBody(req, maxBytes) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let total = 0;
+    let rejected = false;
+    req.on('data', (c) => {
+      if (rejected) return;
+      total += c.length;
+      if (total > maxBytes) {
+        // Do NOT destroy the request: destroying the socket would prevent
+        // the 413 response from reaching the client. Instead, stop
+        // collecting and drain the rest, so the outer handler can send 413.
+        rejected = true;
+        reject(fail(413, `Request exceeds the ${maxBytes} byte limit.`));
+        return;
+      }
+      chunks.push(c);
+    });
+    req.on('end', () => { if (!rejected) resolve(Buffer.concat(chunks)); });
+    req.on('error', (e) => { if (!rejected) reject(e); });
+  });
+}
+// Minimal multipart/form-data parser for a single file part plus optional
+// text fields. Body is bounded by readRawBody (10 MB), so this parser is
+// bounded-memory for the foundation. Returns { file: { filename, contentType, buffer } | null, fields: {} }.
+function parseMultipart(buffer, boundary) {
+  const sep = Buffer.from('--' + boundary);
+  const fields = {};
+  let file = null;
+  let start = buffer.indexOf(sep);
+  if (start < 0) return { file, fields };
+  start += sep.length;
+  while (start < buffer.length) {
+    if (buffer[start] === 45 && buffer[start + 1] === 45) break; // -- terminator
+    if (buffer[start] === 13 && buffer[start + 1] === 10) start += 2;
+    const headerEnd = buffer.indexOf(Buffer.from('\r\n\r\n'), start);
+    if (headerEnd < 0) break;
+    const headers = buffer.toString('utf8', start, headerEnd);
+    let bodyStart = headerEnd + 4;
+    let nextSep = buffer.indexOf(sep, bodyStart);
+    if (nextSep < 0) break;
+    let bodyEnd = nextSep;
+    if (buffer[bodyEnd - 2] === 13 && buffer[bodyEnd - 1] === 10) bodyEnd -= 2;
+    const nameMatch = headers.match(/name="([^"]*)"/);
+    const fileMatch = headers.match(/filename="([^"]*)"/);
+    const typeMatch = headers.match(/Content-Type:\s*([^\r\n]+)/i);
+    const name = nameMatch ? nameMatch[1] : '';
+    if (fileMatch) {
+      file = { filename: fileMatch[1], contentType: typeMatch ? typeMatch[1].trim() : null, buffer: buffer.subarray(bodyStart, bodyEnd) };
+    } else if (name) {
+      fields[name] = buffer.toString('utf8', bodyStart, bodyEnd);
+    }
+    start = nextSep + sep.length;
+  }
+  return { file, fields };
+}
+
 const cleanTitle = v => { const t = typeof v === 'string' ? v.trim() : ''; if (t.length < 3 || t.length > 80) throw fail(400, 'Title must be 3 to 80 characters.'); return t; };
 const cleanGoal = v => { const t = typeof v === 'string' ? v.trim() : ''; if (t.length < 3 || t.length > 4000) throw fail(400, 'Goal must be 3 to 4000 characters.'); return t; };
 
@@ -327,10 +412,26 @@ async function api(req, res, p) {
       return send(res, 200, { ok: true, task: db.prepare('SELECT * FROM tasks WHERE id=?').get(id) });
     }
     if (m === 'DELETE') {
-      db.prepare('DELETE FROM tasks WHERE parent_id=?').run(id);
+      // P0 deletion protection (Assignment 1, defect 4): never silently
+      // delete child subtasks or break dependencies. By default a parent
+      // with children, or a task that other tasks depend on, is not deleted
+      // at all. Explicit cascade requires both deleteChildren:true and
+      // confirm:"DELETE_CHILDREN" in the request body.
+      const b = await readBody(req);
+      const children = db.prepare('SELECT id, title FROM tasks WHERE parent_id=? ORDER BY id ASC').all(id);
+      const dependents = db.prepare('SELECT id, title, depends_on FROM tasks WHERE id != ?').all(id).filter((t) => {
+        try { return JSON.parse(t.depends_on || '[]').includes(id); } catch { return false; }
+      }).map((t) => ({ id: t.id, title: t.title }));
+      const explicitCascade = b.deleteChildren === true && b.confirm === 'DELETE_CHILDREN';
+      if ((children.length > 0 || dependents.length > 0) && !explicitCascade) {
+        throw fail(409, `Task #${id} cannot be deleted: it has ${children.length} child subtask(s) and ${dependents.length} dependent task(s). Delete the children/dependents first, or resend with deleteChildren:true and confirm:"DELETE_CHILDREN" for an explicit cascade.`);
+      }
+      if (explicitCascade) {
+        db.prepare('DELETE FROM tasks WHERE parent_id=?').run(id);
+      }
       db.prepare('DELETE FROM tasks WHERE id=?').run(id);
-      addLog('info', `Task deleted: "${task.title}"`);
-      return send(res, 200, { ok: true });
+      addLog('info', `Task deleted: "${task.title}"${explicitCascade ? ' (explicit child cascade)' : ''}`);
+      return send(res, 200, { ok: true, deletedChildren: explicitCascade ? children.map((c) => c.id) : [] });
     }
   }
   const em = p.match(/^\/api\/tasks\/(\d+)\/execute$/);
@@ -352,6 +453,7 @@ async function api(req, res, p) {
         addLog,
         requestedProvider: providerId,
         customTimeoutMs: b.timeoutMs,
+        allowPaid: false, // P0: server-side zero-cost enforcement, not a client toggle
       });
 
       if (execResult.ok) {
@@ -381,6 +483,7 @@ async function api(req, res, p) {
         resumeOnly: true,
         requestedProvider: b.provider,
         customTimeoutMs: b.timeoutMs,
+        allowPaid: false, // P0: server-side zero-cost enforcement, not a client toggle
       });
       if (execResult.ok) {
         return send(res, 200, { ok: true, task: db.prepare('SELECT * FROM tasks WHERE id=?').get(id) });
@@ -420,6 +523,7 @@ async function api(req, res, p) {
         addLog,
         requestedProvider: b.provider,
         customTimeoutMs: b.timeoutMs,
+        allowPaid: false, // P0: server-side zero-cost enforcement, not a client toggle
       });
       if (execResult.ok) {
         return send(res, 200, { ok: true, task: db.prepare('SELECT * FROM tasks WHERE id=?').get(id) });
@@ -437,7 +541,7 @@ async function api(req, res, p) {
   if (p === '/api/workflows/decompose' && m === 'POST') {
     const b = await readBody(req);
     const title = cleanGoal(b.title || b.goal);
-    const plan = await decomposeGoal(title, { providers: PROVIDERS, priority: b.priority });
+    const plan = await decomposeGoal(title, { providers: PROVIDERS, priority: b.priority, allowPaid: false }); // P1 explicit
     return send(res, 200, { ok: true, goal: title, plan });
   }
 
@@ -447,7 +551,7 @@ async function api(req, res, p) {
     const priority = PRIORITIES.includes(b.priority) ? b.priority : 'Medium';
     let plan = b.plan;
     if (!plan) {
-      plan = await decomposeGoal(title, { providers: PROVIDERS, priority });
+      plan = await decomposeGoal(title, { providers: PROVIDERS, priority, allowPaid: false }); // P1 explicit
     }
     const wf = createWorkflow(db, { title, priority, plan, providers: PROVIDERS, addLog });
     return send(res, 201, wf);
@@ -458,6 +562,11 @@ async function api(req, res, p) {
     const parentId = Number(wem[1]);
     const b = await readBody(req);
     try {
+      // P1 explicit allowPaid: workflow execute validates the provider
+      // like task execute does, and passes allowPaid false explicitly.
+      if (b.provider && b.provider !== 'gemini' && b.provider !== 'ollama') {
+        throw fail(400, 'Unsupported execution provider. Choose "gemini" or "ollama".');
+      }
       const result = await executeSequentialWorkflow({
         db,
         parentId,
@@ -465,6 +574,7 @@ async function api(req, res, p) {
         addLog,
         requestedProvider: b.provider || 'gemini',
         customTimeoutMs: b.timeoutMs,
+        allowPaid: false,
       });
       return send(res, result.ok ? 200 : 400, result);
     } catch (err) {
@@ -483,7 +593,14 @@ async function api(req, res, p) {
   }
   if (p === '/api/providers/gemini/test' && m === 'POST') {
     const b = await readBody(req);
-    const result = await PROVIDERS.gemini.testGemini({ key: b.key, model: b.model });
+    // P1 Gemini paid-model bypass fix (Assignment 1.4): the client must
+    // never be able to choose a paid model. allowPaid is always false on
+    // this route, regardless of anything in the body, and only the verified
+    // free model is allowed. Rejected before any provider call.
+    if (b.model && !isVerifiedFreeGeminiModel(b.model)) {
+      throw fail(403, `Gemini model "${b.model}" is not a verified free model. Only gemini-flash-lite-latest is allowed.`);
+    }
+    const result = await PROVIDERS.gemini.testGemini({ key: b.key, model: b.model, allowPaid: false });
     if (result.ok) {
       addLog('ok', `Gemini cloud test succeeded: "${result.text.trim().slice(0, 60)}"`);
     } else {
@@ -499,6 +616,7 @@ async function api(req, res, p) {
     if (PROVIDERS.gemini) {
       const sourcesBlock = (src.sources || []).map((s, idx) => `[${idx+1}] ${s.title}: ${s.extract} (${s.url})`).join('\n\n');
       const prompt = `You are the Project Beyond Research Agent.\nTopic: "${topic}".\nSources:\n${sourcesBlock}\nProvide a concise 2-sentence summary and list 1 primary source link.`;
+      assertAllowPaid('gemini', false); // P1 explicit: research synthesis calls Gemini directly, so it must check here.
       synthesis = await PROVIDERS.gemini.generateContent({ prompt, timeoutMs: 12000 });
     }
     addLog('ok', `Research Agent: gathered ${src.sources.length} genuine sources for "${topic}"`);
@@ -519,23 +637,270 @@ async function api(req, res, p) {
     addLog(b.freeFirst ? 'ok' : 'warn', 'Free-First mode ' + (b.freeFirst ? 'enabled' : 'disabled'));
     return send(res, 200, { ok: true });
   }
-  if (p === '/api/reset' && m === 'POST') { seed(); return send(res, 200, { ok: true }); }
+  if (p === '/api/backup' && m === 'GET') {
+    if (req.headers['x-requested-with'] !== 'beyond') throw fail(403, 'Missing X-Requested-With header.');
+    const { token, backup } = issueBackupToken();
+    return send(res, 200, { ok: true, backupToken: token, backup, expiresInSec: 600, message: 'Use this backupToken with confirm:"RESET" on POST /api/reset within 10 minutes. The token is single-use.' });
+  }
+  // P1 backup restore design (Assignment 1.2): restore is available only
+  // in this isolated workspace, only from a validated backup, only with
+  // explicit confirmation and a fresh single-use backup token, and only
+  // after a fresh pre-restore backup is created and returned, so the
+  // restore itself is reversible. It never touches production data, never
+  // restores provider keys (settings are allow-listed to freeFirst/seeded
+  // only), and it runs inside a transaction so a failed restore rolls back.
+  function validateBackupStructure(backup) {
+    if (!backup || typeof backup !== 'object' || Array.isArray(backup)) return 'Backup must be an object.';
+    // P2 restore round-trip (Assignment 1.4): reject unexpected fields.
+    // A backup created by this server has exactly these top-level keys,
+    // and each record has exactly the known database columns. Extra fields
+    // are not silently dropped any more, because a tampered backup must not
+    // be accepted as if it were clean.
+    const topKeys = Object.keys(backup).sort().join(',');
+    if (topKeys !== 'createdAt,logs,settings,tasks') return 'Backup has unexpected top-level fields.';
+    if (typeof backup.createdAt !== 'number') return 'Backup must have a numeric createdAt.';
+    if (!Array.isArray(backup.tasks) || !Array.isArray(backup.logs) || !Array.isArray(backup.settings)) return 'Backup must have tasks, logs and settings arrays.';
+    if (backup.tasks.length > 10000 || backup.logs.length > 10000) return 'Backup is too large.';
+    const taskFields = new Set(['id','title','agent','priority','status','result','error','provider','current_step','completed_steps','progress','retry_count','max_retries','checkpoint_data','parent_id','depends_on','created_at','completed_at','updated_at','execution_id']);
+    const seenTaskIds = new Set();
+    for (const t of backup.tasks) {
+      if (!t || typeof t !== 'object') return 'Backup task must be an object.';
+      for (const k of Object.keys(t)) { if (!taskFields.has(k)) return `Backup task has unexpected field "${k}".`; }
+      if (!Number.isInteger(t.id) || t.id <= 0) return 'Backup task id must be a positive integer.';
+      if (seenTaskIds.has(t.id)) return `Backup has duplicate task id ${t.id}.`;
+      seenTaskIds.add(t.id);
+      if (typeof t.title !== 'string' || !t.title.trim()) return 'Backup task title must be a non-empty string.';
+      if (typeof t.agent !== 'string' || !t.agent) return 'Backup task agent must be a non-empty string.';
+      if (typeof t.priority !== 'string' || !PRIORITIES.includes(t.priority)) return 'Backup task priority is invalid.';
+      if (typeof t.status !== 'string' || !STATUSES.includes(t.status)) return 'Backup task status is invalid.';
+      if (typeof t.created_at !== 'number') return 'Backup task created_at must be a number.';
+      if (t.parent_id !== undefined && t.parent_id !== null && !Number.isInteger(t.parent_id)) return 'Backup task parent_id is invalid.';
+    }
+    const logFields = new Set(['id','t','lvl','msg','sample']);
+    const seenLogIds = new Set();
+    for (const l of backup.logs) {
+      if (!l || typeof l !== 'object' || typeof l.t !== 'number' || typeof l.lvl !== 'string' || typeof l.msg !== 'string') return 'Backup log entry is invalid.';
+      for (const k of Object.keys(l)) { if (!logFields.has(k)) return `Backup log has unexpected field "${k}".`; }
+      if (l.id !== undefined && l.id !== null) { if (seenLogIds.has(l.id)) return `Backup has duplicate log id ${l.id}.`; seenLogIds.add(l.id); }
+    }
+    const seenSettingKeys = new Set();
+    for (const st of backup.settings) {
+      if (!st || typeof st !== 'object' || typeof st.key !== 'string' || typeof st.value !== 'string') return 'Backup setting is invalid.';
+      for (const k of Object.keys(st)) { if (k !== 'key' && k !== 'value') return `Backup setting has unexpected field "${k}".`; }
+      if (st.key !== 'freeFirst' && st.key !== 'seeded') return `Backup setting key "${st.key}" is not allowed.`;
+      if (seenSettingKeys.has(st.key)) return `Backup has duplicate setting key "${st.key}".`;
+      seenSettingKeys.add(st.key);
+    }
+    return null;
+  }
+  if (p === '/api/restore' && m === 'POST') {
+    if (req.headers['x-requested-with'] !== 'beyond') throw fail(403, 'Missing X-Requested-With header.');
+    const b = await readBody(req);
+    if (b.confirm !== 'RESTORE') throw fail(403, 'Restore requires explicit confirm:"RESTORE". No data was changed.');
+    const entry = typeof b.backupToken === 'string' ? backupTokens.get(b.backupToken) : undefined;
+    if (!entry || entry.expiresAt < Date.now()) throw fail(403, 'Restore requires a valid backup token from GET /api/backup (valid 10 minutes). No data was changed.');
+    const validationError = validateBackupStructure(b.backup);
+    if (validationError) throw fail(400, `Invalid backup: ${validationError} No data was changed.`);
+    const preRestoreBackup = createBackup();
+    backupTokens.delete(b.backupToken);
+    try {
+      db.exec('BEGIN');
+      db.exec('DELETE FROM tasks; DELETE FROM logs; DELETE FROM settings;');
+      const insTask = db.prepare('INSERT INTO tasks(id,title,agent,priority,status,result,error,provider,current_step,completed_steps,progress,retry_count,max_retries,checkpoint_data,parent_id,depends_on,created_at,completed_at,updated_at,execution_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+      for (const t of b.backup.tasks) {
+        insTask.run(t.id, t.title, t.agent, t.priority, t.status, t.result ?? null, t.error ?? null, t.provider ?? null, t.current_step ?? null, t.completed_steps ?? '[]', t.progress ?? 0, t.retry_count ?? 0, t.max_retries ?? 3, t.checkpoint_data ?? null, t.parent_id ?? null, t.depends_on ?? '[]', t.created_at, t.completed_at ?? null, t.updated_at ?? null, t.execution_id ?? null);
+      }
+      const insLog = db.prepare('INSERT INTO logs(id,t,lvl,msg,sample) VALUES(?,?,?,?,?)');
+      for (const l of b.backup.logs) {
+        insLog.run(l.id ?? null, l.t, l.lvl, l.msg, l.sample ?? 0);
+      }
+      for (const st of b.backup.settings) {
+        setSetting(st.key, st.value);
+      }
+      db.exec('COMMIT');
+    } catch (restoreErr) {
+      try { db.exec('ROLLBACK'); } catch {}
+      throw fail(500, `Restore failed and was rolled back: ${restoreErr.message}`);
+    }
+    addLog('warn', 'Database restored from backup.');
+    return send(res, 200, { ok: true, preRestoreBackup, restored: { tasks: b.backup.tasks.length, logs: b.backup.logs.length, settings: b.backup.settings.length } });
+  }
+  if (p === '/api/reset' && m === 'POST') {
+    // P0 reset protection: no silent wipe. Requires X-Requested-With header,
+    // explicit confirm:"RESET", and a valid, unexpired, single-use backup
+    // token from GET /api/backup. Without all three, nothing is deleted.
+    if (req.headers['x-requested-with'] !== 'beyond') throw fail(403, 'Missing X-Requested-With header.');
+    const b = await readBody(req);
+    if (b.confirm !== 'RESET') throw fail(403, 'Reset requires explicit confirm:"RESET". No data was deleted.');
+    const entry = typeof b.backupToken === 'string' ? backupTokens.get(b.backupToken) : undefined;
+    if (!entry || entry.expiresAt < Date.now()) throw fail(403, 'Reset requires a valid backup token from GET /api/backup (valid 10 minutes). No data was deleted.');
+    backupTokens.delete(b.backupToken);
+    const backup = entry.backup;
+    seed();
+    addLog('warn', 'Database reset after backup confirmation.');
+    return send(res, 200, { ok: true, backup });
+  }
+  // --- Assignment 1.6: Conversations, Chat and Attachments (API v1) ---
+  // See docs/API.md for the full contract. All routes are served only to
+  // allowed Hosts (localhost + private Tailscale network — see
+  // isAllowedHost), same as every other route here.
+  const convMatch = p.match(/^\/api\/conversations\/(\d+)$/);
+  const convMsgMatch = p.match(/^\/api\/conversations\/(\d+)\/messages$/);
+  const convMsgIdMatch = p.match(/^\/api\/conversations\/(\d+)\/messages\/(\d+)$/);
+  const convMsgRetryMatch = p.match(/^\/api\/conversations\/(\d+)\/messages\/(\d+)\/retry$/);
+  const attMatch = p.match(/^\/api\/chat\/attachments\/(att_[0-9a-f]{32})$/);
+  const attContentMatch = p.match(/^\/api\/chat\/attachments\/(att_[0-9a-f]{32})\/content$/);
+  if (p === '/api/conversations' && m === 'POST') {
+    const b = await readBody(req);
+    const conv = chat.createConversation(db, b.title);
+    return send(res, 201, { ok: true, conversation: conv });
+  }
+  if (p === '/api/conversations' && m === 'GET') {
+    return send(res, 200, { ok: true, conversations: chat.listConversations(db) });
+  }
+  if (convMatch && m === 'GET') {
+    return send(res, 200, { ok: true, conversation: chat.getConversation(db, Number(convMatch[1])) });
+  }
+  if (convMatch && m === 'PATCH') {
+    const b = await readBody(req);
+    return send(res, 200, { ok: true, conversation: chat.renameConversation(db, Number(convMatch[1]), b.title) });
+  }
+  if (convMatch && m === 'DELETE') {
+    const result = chat.deleteConversation(db, Number(convMatch[1]));
+    // chat.deleteConversation already deleted the attachment rows in its
+    // transaction; here only the files are removed, best-effort, by id.
+    for (const attId of result.attachmentIds || []) {
+      try { fs.unlinkSync(attachments.resolveAttachmentPath(ATTACHMENTS_DIR, attId)); } catch {}
+    }
+    return send(res, 200, { ok: true, deleted: result });
+  }
+  if (convMsgMatch && m === 'GET') {
+    const conv = chat.getConversation(db, Number(convMsgMatch[1]));
+    return send(res, 200, { ok: true, conversation_id: conv.id, messages: conv.messages });
+  }
+  if (convMsgMatch && m === 'POST') {
+    const b = await readBody(req);
+    const msg = chat.addMessage(db, Number(convMsgMatch[1]), b.role || 'user', b.content || '', b.attachment_ids || [], b.model || null);
+    return send(res, 201, { ok: true, message: msg });
+  }
+  if (convMsgIdMatch && m === 'PATCH') {
+    const b = await readBody(req);
+    const msg = chat.editMessage(db, Number(convMsgIdMatch[1]), Number(convMsgIdMatch[2]), b.content);
+    return send(res, 200, { ok: true, message: msg });
+  }
+  if (convMsgRetryMatch && m === 'POST') {
+    const result = await chat.retryAssistantMessage({ db, attachmentsDir: ATTACHMENTS_DIR, conversationId: Number(convMsgRetryMatch[1]), messageId: Number(convMsgRetryMatch[2]), providers: PROVIDERS, allowPaid: false });
+    return send(res, 200, { ok: true, message: result.assistant, images_used: result.imagesUsed, model: result.model });
+  }
+  if (p === '/api/chat' && m === 'POST') {
+    const b = await readBody(req);
+    let conversationId = b.conversation_id;
+    if (!conversationId) {
+      const conv = chat.createConversation(db, b.title);
+      conversationId = conv.id;
+    }
+    const userMsg = chat.addMessage(db, Number(conversationId), 'user', b.content || '', b.attachment_ids || [], null);
+    try {
+      const result = await chat.generateReply({ db, attachmentsDir: ATTACHMENTS_DIR, conversationId: Number(conversationId), providers: PROVIDERS, allowPaid: false });
+      return send(res, 200, { ok: true, conversation_id: Number(conversationId), user_message: userMsg, assistant_message: result.assistant, images_used: result.imagesUsed, model: result.model });
+    } catch (genErr) {
+      // User message is saved, assistant answer is NOT saved on failure.
+      // The client can retry /api/chat or the retry endpoint later.
+      const status = genErr.status || 503;
+      return send(res, status, { ok: false, error: genErr.message, code: genErr.code || 'PROVIDER_ERROR', conversation_id: Number(conversationId), user_message: userMsg });
+    }
+  }
+  if (p === '/api/chat/attachments' && m === 'POST') {
+    // Fast path: reject oversized uploads from Content-Length before
+    // reading the body, so a 413 is returned without draining a huge body.
+    const declaredLength = Number(req.headers['content-length']);
+    if (Number.isFinite(declaredLength) && declaredLength > attachments.MAX_ATTACHMENT_BYTES) {
+      throw fail(413, `Attachment exceeds the ${attachments.MAX_ATTACHMENT_BYTES} byte limit.`);
+    }
+    const contentTypeHeader = (req.headers['content-type'] || '').toLowerCase();
+    const raw = await readRawBody(req, attachments.MAX_ATTACHMENT_BYTES);
+    let file = null;
+    let conversationId = null;
+    if (contentTypeHeader.includes('multipart/form-data')) {
+      // Boundary is case-sensitive: do NOT use the lowercased header here.
+      const boundaryMatch = (req.headers['content-type'] || '').match(/boundary=([^;]+)/i);
+      if (!boundaryMatch) throw fail(400, 'Multipart upload requires a boundary.');
+      const boundary = boundaryMatch[1].trim().replace(/^"|"$/g, '');
+      const parsed = parseMultipart(raw, boundary);
+      file = parsed.file;
+      if (parsed.fields.conversation_id) conversationId = Number(parsed.fields.conversation_id) || null;
+    } else {
+      const query = new URL(req.url, 'http://localhost').searchParams;
+      file = { filename: req.headers['x-filename'] || 'upload', contentType: contentTypeHeader.split(';')[0].trim() || null, buffer: raw };
+      if (req.headers['x-conversation-id']) conversationId = Number(req.headers['x-conversation-id']) || null;
+      if (query.get('conversation_id')) conversationId = Number(query.get('conversation_id')) || null;
+    }
+    if (!file || !file.buffer || file.buffer.length === 0) throw fail(400, 'No file part found in upload.');
+    const stored = attachments.storeAttachment(db, ATTACHMENTS_DIR, { conversationId, originalFilename: file.filename, declaredContentType: file.contentType, buffer: Buffer.from(file.buffer) });
+    return send(res, 201, { ok: true, attachment: stored });
+  }
+  if (p === '/api/chat/attachments' && m === 'GET') {
+    const query = new URL(req.url, 'http://localhost').searchParams;
+    const convId = query.get('conversation_id');
+    const list = attachments.listAttachments(db, convId ? Number(convId) : null);
+    return send(res, 200, { ok: true, attachments: list });
+  }
+  if (attContentMatch && m === 'GET') {
+    const { meta, buffer } = attachments.getAttachmentBytes(db, ATTACHMENTS_DIR, attContentMatch[1]);
+    const query = new URL(req.url, 'http://localhost').searchParams;
+    const disposition = query.get('download') === '1' ? `attachment; filename="${meta.filename}"` : `inline; filename="${meta.filename}"`;
+    res.writeHead(200, {
+      'Content-Type': meta.content_type,
+      'Content-Length': buffer.length,
+      'Content-Disposition': disposition,
+      'X-Content-Type-Options': 'nosniff',
+      'Cache-Control': 'private, no-store',
+      'Content-Security-Policy': "default-src 'none'; sandbox",
+    });
+    return res.end(buffer);
+  }
+  if (attMatch && m === 'GET') {
+    return send(res, 200, { ok: true, attachment: attachments.getAttachment(db, attMatch[1]) });
+  }
+  if (attMatch && m === 'DELETE') {
+    const meta = attachments.deleteAttachment(db, ATTACHMENTS_DIR, attMatch[1]);
+    return send(res, 200, { ok: true, deleted: meta.id });
+  }
   throw fail(404, 'Not found.');
 }
 
 const PAGE = path.join(__dirname, 'public', 'index.html');
+// Hosts this server answers to. Localhost for on-machine use; the
+// 100.64.0.0/10 range and *.ts.net / MagicDNS short names for the private
+// Tailscale network (this PC's tailnet IP is 100.64.x.x). Any other Host
+// (public hostnames, LAN IPs) is rejected with 403. Binding 0.0.0.0
+// listens on all interfaces, but only these Host values are served, and
+// Tailscale only routes traffic between your own tailnet devices — the
+// server is NOT exposed to the public internet by this change.
+function isAllowedHost(host) {
+  if (!host) return false;
+  const h = String(host).toLowerCase();
+  if (h === 'localhost' || h === '127.0.0.1' || h === '::1' || h === '[::1]') return true;
+  if (h.endsWith('.ts.net')) return true;
+  if (/^100\.(6[4-9]|[7-9][0-9]|1[0-2][0-9])\.\d{1,3}\.\d{1,3}$/.test(h)) return true;
+  if (/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(h)) return true; // MagicDNS short name, e.g. laptop-0m83l1ol
+  return false;
+}
 const server = http.createServer(async (req, res) => {
   try {
     const host = (req.headers.host || '').split(':')[0];
-    if (host !== 'localhost' && host !== '127.0.0.1') throw fail(403, 'Unexpected Host header.');
+    if (!isAllowedHost(host)) throw fail(403, 'Unexpected Host header.');
     const p = new URL(req.url, 'http://localhost').pathname;
     if (p.startsWith('/api/')) return await api(req, res, p);
     if ((p === '/' || p === '/index.html') && req.method === 'GET') {
+      // Read the file BEFORE writeHead: if index.html is missing, this
+      // throws before headers are sent instead of crashing the process.
+      const page = fs.readFileSync(PAGE);
       res.writeHead(200, {
         'Content-Type': 'text/html; charset=utf-8', 'X-Content-Type-Options': 'nosniff',
-        'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'",
+        'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'",
       });
-      return res.end(fs.readFileSync(PAGE));
+      return res.end(page);
     }
     throw fail(404, 'Not found.');
   } catch (e) {
@@ -543,6 +908,6 @@ const server = http.createServer(async (req, res) => {
     console.error(e); send(res, 500, { error: 'Server error.' });
   }
 });
-server.listen(PORT, HOST, () => console.log(`Project Beyond running at http://localhost:${PORT}  (database: ${DB_PATH})`));
+server.listen(PORT, HOST, () => console.log(`Project Beyond running on ${HOST}:${PORT} (database: ${DB_PATH}) — open http://localhost:${PORT} locally or http://<tailnet-IP>:${PORT} from your Tailscale network`));
 process.on('SIGINT', () => { db.close(); process.exit(0); });
 process.on('SIGTERM', () => { db.close(); process.exit(0); });

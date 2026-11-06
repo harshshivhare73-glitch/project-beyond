@@ -132,6 +132,7 @@ const PROVIDERS = {
 
   gemini: {
     id: 'gemini',
+    supportsVision: true, // Assignment 1.6: Gemini generateContent below accepts images as inlineData. This flag is only true because the code actually sends image bytes; never set it without that code.
     name: 'Google Gemini',
     type: 'cloud',
     envVar: 'GEMINI_API_KEY',
@@ -201,7 +202,13 @@ const PROVIDERS = {
         return res;
       }
     },
-    generateContent: async ({ prompt, model = 'gemini-flash-lite-latest', timeoutMs = 15000, key = null, maxOutputTokens = 4096 } = {}) => {
+    generateContent: async ({ prompt, model = 'gemini-flash-lite-latest', timeoutMs = 15000, key = null, maxOutputTokens = 4096, images = null, allowPaid = false } = {}) => {
+      // Assignment 1.6 vision: if images are present, they must be actual
+      // bytes (base64), not filenames or URLs. A paid or unknown model is
+      // rejected before any provider call when allowPaid is not true.
+      if (images && images.length > 0 && allowPaid !== true && !isVerifiedFreeGeminiModel(model)) {
+        return { ok: false, error: `Gemini model "${model}" is not a verified free model for vision. Only gemini-flash-lite-latest is allowed when allowPaid is false.`, status: 'paid_model_blocked' };
+      }
       const apiKey = (key !== null && key !== undefined) ? key : (process.env.GEMINI_API_KEY || '');
       if (!apiKey || !apiKey.trim()) {
         return {
@@ -220,7 +227,9 @@ const PROVIDERS = {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
             body: JSON.stringify({
-              contents: [{ role: 'user', parts: [{ text: prompt }] }],
+              contents: [{ role: 'user', parts: (images && images.length > 0)
+                ? [{ text: prompt }, ...images.map((img) => ({ inlineData: { mimeType: img.mimeType, data: img.dataBase64 || img.data || '' } }))]
+                : [{ text: prompt }] }],
               generationConfig: { maxOutputTokens, temperature: 0.2 },
             }),
             signal: ac.signal,
@@ -278,9 +287,17 @@ const PROVIDERS = {
       };
     },
     testGemini: async (config = {}) => {
+      // P1 Gemini paid-model bypass fix (Assignment 1.4): never call the
+      // provider with a paid or unknown model when allowPaid is not an
+      // explicit true. The model defaults to the verified free model, and
+      // any other model is rejected before any provider call is made.
+      const model = config.model || 'gemini-flash-lite-latest';
+      if (config.allowPaid !== true && !isVerifiedFreeGeminiModel(model)) {
+        return { ok: false, error: `Gemini model "${model}" is not a verified free model. Only gemini-flash-lite-latest is allowed when allowPaid is false.` };
+      }
       return await PROVIDERS.gemini.generateContent({
         prompt: 'Return exactly: "Project Beyond Gemini Cloud Online."',
-        model: config.model || 'gemini-flash-lite-latest',
+        model,
         timeoutMs: config.timeoutMs || 10000,
         key: config.key,
       });
@@ -407,6 +424,15 @@ const PROVIDERS = {
           maskedKey: maskKey(key),
         };
       }
+    },
+    // P1 OpenRouter guard (Assignment 1.2): execution is NOT enabled.
+    // This stub exists so a direct call fails with a clear error instead
+    // of a TypeError, and so no paid model can be selected by accident.
+    // Any future implementation MUST call assertFreeModel(model) and must
+    // allow only verified ":free" models; unknown or unverified pricing
+    // must be rejected. Do not replace this stub without that validation.
+    generateContent: async () => {
+      throw new Error('OpenRouter generation is not implemented. Model-level pricing must be validated (only verified ":free" models) before any OpenRouter execution is enabled.');
     },
   },
 
@@ -636,10 +662,80 @@ async function getAllProviderStatuses() {
   return results;
 }
 
+// P0 cost control (Assignment 1): server-side allowPaid enforcement.
+// Paid = providers whose own terms in this file say Pay-As-You-Go with no
+// permanent free tier: DeepSeek, OpenAI, Anthropic. Every other id, including
+// unknown ids, is treated as paid (fail closed) — a provider must be
+// explicitly listed as free before it can be used when allowPaid is false.
+const PAID_PROVIDER_IDS = new Set(['deepseek', 'openai', 'anthropic']);
+const FREE_PROVIDER_IDS = new Set(['ollama', 'gemini', 'groq', 'openrouter']);
+function isPaidProvider(providerId) {
+  return !FREE_PROVIDER_IDS.has(providerId);
+}
+function isFreeProvider(providerId) {
+  return FREE_PROVIDER_IDS.has(providerId);
+}
+function assertAllowPaid(providerId, allowPaid) {
+  // allowPaid must be an explicit true to allow a paid provider. Any other
+  // value (false, undefined, null, non-boolean) fails closed.
+  if (allowPaid === true) return;
+  if (isPaidProvider(providerId)) {
+    const err = new Error(`Paid provider "${providerId}" is blocked because allowPaid is false.`);
+    err.status = 403;
+    throw err;
+  }
+}
+
+// P1 Gemini free-model allow-list (Assignment 1.4): the only Gemini model
+// used anywhere in this codebase is gemini-flash-lite-latest, the default
+// in generateContent below. No other Gemini model has verified free pricing
+// in this codebase, so every other model is treated as paid/unknown and
+// rejected when allowPaid is not an explicit true. Client-supplied model
+// names are never trusted: the server route and testGemini both check here.
+const FREE_GEMINI_MODELS = ['gemini-flash-lite-latest'];
+function isVerifiedFreeGeminiModel(modelId) {
+  return typeof modelId === 'string' && FREE_GEMINI_MODELS.includes(modelId);
+}
+function assertFreeGeminiModel(modelId, allowPaid) {
+  if (allowPaid === true) return;
+  if (!isVerifiedFreeGeminiModel(modelId)) {
+    const err = new Error(`Gemini model "${modelId}" is not a verified free model. Only ${FREE_GEMINI_MODELS.join(', ')} ${FREE_GEMINI_MODELS.length === 1 ? 'is' : 'are'} allowed when allowPaid is false.`);
+    err.status = 403;
+    throw err;
+  }
+}
+
+// P1 OpenRouter model pricing (Assignment 1.2): OpenRouter execution is
+// NOT enabled in this codebase. Any future implementation must validate
+// model-level pricing before calling the API, and must allow only models
+// whose pricing is verified free. A model id ending in ":free" is the only
+// form accepted here as verified-free; every other form, including unknown,
+// unverified or missing model ids, is rejected (fail closed).
+function isVerifiedFreeModel(modelId) {
+  return typeof modelId === 'string' && modelId.length > 5 && modelId.endsWith(':free');
+}
+function assertFreeModel(modelId) {
+  if (!isVerifiedFreeModel(modelId)) {
+    const err = new Error(`OpenRouter model "${modelId}" is not a verified free model. Only models ending in ":free" are allowed.`);
+    err.status = 403;
+    throw err;
+  }
+}
+
 module.exports = {
   PROVIDERS,
   loadEnv,
   maskKey,
   listProviders,
   getAllProviderStatuses,
+  PAID_PROVIDER_IDS,
+  FREE_PROVIDER_IDS,
+  isPaidProvider,
+  isFreeProvider,
+  assertAllowPaid,
+  isVerifiedFreeModel,
+  assertFreeModel,
+  FREE_GEMINI_MODELS,
+  isVerifiedFreeGeminiModel,
+  assertFreeGeminiModel,
 };

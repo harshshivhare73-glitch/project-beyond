@@ -1,6 +1,8 @@
 'use strict';
 // Project Beyond — Stage G & H: Automatic Task Recovery & Real Multi-Agent Orchestrator
 // Pure Node.js built-ins. Zero external dependencies.
+const fs = require('node:fs');
+const path = require('node:path');
 const { fetchSources } = require('./research');
 const {
   writeArtifact,
@@ -8,7 +10,14 @@ const {
   readArtifact,
   extractArtifactsFromMarkdown,
   validateArtifactContent,
+  getVerifiedArtifactPath,
+  validateMp4File,
+  computeFileHashSync,
 } = require('./artifacts');
+// P0 cost control: id-based paid/free classification lives in providers.js.
+// Unknown ids fail closed (treated as paid). Mock providers in tests use the
+// same ids, so this check works without calling any real provider.
+const { isPaidProvider, assertAllowPaid } = require('./providers');
 const { buildProject, planProjectManifest } = require('./project_builder');
 
 const activeTasks = new Set();
@@ -50,11 +59,16 @@ function initOrchestrator(db, providers, addLog) {
 }
 
 // Find a verified, healthy fallback provider when the primary fails
-async function findFallbackProvider(currentProviderId, providers, logFn) {
+// P0 cost control: options.allowPaid must be an explicit true to allow a
+// paid provider. Any other value fails closed and paid/unknown providers are
+// skipped entirely, on every fallback path.
+async function findFallbackProvider(currentProviderId, providers, logFn, options = {}) {
+  const allowPaid = options.allowPaid === true;
   // Candidate fallback providers in preference order
   const candidateIds = ['gemini', 'groq', 'openrouter', 'deepseek', 'ollama'];
   for (const pid of candidateIds) {
     if (pid === currentProviderId) continue;
+    if (!allowPaid && isPaidProvider(pid)) continue;
     const provider = providers[pid];
     if (!provider) continue;
 
@@ -99,6 +113,167 @@ function saveCheckpoint(db, taskId, { step, progress, completedSteps, checkpoint
     now,
     taskId
   );
+}
+
+// P0 completion gate (Assignment 1, defect 1). This runs before any task is
+// marked completed/100%. It does not change checkpoint or recovery logic:
+// a failed gate throws, the outer catch marks the task failed with the error,
+// and the last checkpoint (progress 80, generating) is preserved for retry.
+// - Video tasks: require a verified .mp4 artifact file on disk, size > 0.
+// - File tasks: if artifacts are recorded, every recorded file must exist
+//   on disk with size > 0; truncated/invalid artifact output blocks completion.
+// - Text tasks: require a real, non-empty text result (the generic fallback
+//   string "Task completed successfully." is not a result).
+// P0 file-task distinction (Assignment 1.2, extended 1.4). A task is a
+// file-generation task only when there is an explicit file signal, not
+// merely because its agent is coding or graphics:
+// - agent is video (MP4 is the output), or
+// - the task is a project goal (expense/tracker/multi-file/build project), or
+// - artifacts were extracted/written/truncated/invalid (artifact_status set), or
+// - the caller explicitly sets fileTaskExpected: true, or
+// - the task or parent title shows file-generation intent (1.4, see below).
+// Text-only coding/graphics tasks — a code snippet in the chat result with
+// no file extraction — remain text tasks and may complete on real text.
+// This preserves legitimate text behaviour while closing the "text claims
+// a file" gap for file tasks.
+const EXPECTED_TYPE_EXTENSIONS = {
+  js: ['.js'], javascript: ['.js'], html: ['.html', '.htm'], css: ['.css'],
+  json: ['.json'], python: ['.py'], py: ['.py'], svg: ['.svg'],
+  markdown: ['.md'], md: ['.md'], text: ['.txt'], txt: ['.txt'],
+  xml: ['.xml'], sh: ['.sh'], bash: ['.sh'], ts: ['.ts'], typescript: ['.ts'],
+};
+
+// P2 title intent (Assignment 1.4): detect file-generation intent from a
+// task title, even when no artifact is returned. Conservative patterns only:
+// a creation verb plus a filename with an extension, or a creation verb
+// plus the word "file", or an explicit "file:" prefix. "Explain app.js"
+// does NOT match, because it has no creation verb, so explanation tasks
+// are not falsely turned into file tasks.
+function hasFileGenerationIntent(title) {
+  if (typeof title !== 'string' || !title) return false;
+  const t = title.toLowerCase();
+  if (/\b(create|write|save|generate|build|make|produce)\b[^.]*\.(js|html|css|json|py|md|txt|svg|mp4)\b/.test(t)) return true;
+  if (/\b(create|write|save|generate|build)\b\s+(a\s+)?file\b/.test(t)) return true;
+  if (/file:\s*[\w\-]+\./.test(t)) return true;
+  return false;
+}
+
+function verifyTaskCompletion({ agent, finalResult, checkpointData = {}, taskTitle = '', parentTitle = '' }) {
+  const text = typeof finalResult === 'string' ? finalResult.trim() : '';
+  if (!text || text === 'Task completed successfully.') {
+    return { ok: false, error: 'Task cannot complete without a valid output result.' };
+  }
+  const artifacts = Array.isArray(checkpointData.artifacts) ? checkpointData.artifacts : [];
+  if (agent === 'video') {
+    const mp4 = artifacts.find((a) => a && typeof a.relativePath === 'string' && a.relativePath.toLowerCase().endsWith('.mp4'));
+    if (!mp4) {
+      return { ok: false, error: 'Video task cannot complete without a verified MP4 file. Only a storyboard/script was produced.' };
+    }
+    return verifyArtifactFile(mp4);
+  }
+  if (checkpointData.artifact_status === 'truncated' || checkpointData.artifact_status === 'invalid') {
+    return { ok: false, error: `Task cannot complete: file artifacts are ${checkpointData.artifact_status}. ${checkpointData.artifact_warning || ''}`.trim() };
+  }
+  const isFileTask = checkpointData.fileTaskExpected === true
+    || checkpointData.artifact_status === 'written'
+    || artifacts.length > 0
+    || hasFileGenerationIntent(taskTitle)
+    || hasFileGenerationIntent(parentTitle);
+  if (isFileTask && artifacts.length === 0) {
+    return { ok: false, error: 'File-generation task cannot complete without at least one verified artifact. A text response is not proof that a file was created.' };
+  }
+  // P2 paragraph claims (Assignment 1.4): explicit file claims anywhere in
+  // the text, not only at line starts, must match a verified artifact or a
+  // verified file on disk. This blocks "I also saved output2.js" as well
+  // as "File saved: output2.js" when that file does not exist.
+  if (isFileTask) {
+    const claimPattern = /(?:File saved|Output written|Saved to|Written to|File created|Created file|I saved|I also saved|I created|saved):?\s*`?([A-Za-z0-9_.\-/]+\.[A-Za-z0-9]+)`?/gi;
+    let claimMatch;
+    while ((claimMatch = claimPattern.exec(text)) !== null) {
+      const claimed = claimMatch[1];
+      const claimedInArtifacts = artifacts.some((a) => a && (a.relativePath === claimed || (typeof a.relativePath === 'string' && a.relativePath.endsWith('/' + claimed))));
+      if (!claimedInArtifacts) {
+        const claimedCheck = verifyArtifactFile({ relativePath: claimed });
+        if (!claimedCheck.ok) {
+          return { ok: false, error: `File-generation task claims "${claimed}" in its text, but that file was not verified: ${claimedCheck.error}` };
+        }
+      }
+    }
+  }
+  const verifiedArtifacts = [];
+  for (const art of artifacts) {
+    const check = verifyArtifactFile(art);
+    if (!check.ok) return check;
+    verifiedArtifacts.push({ relativePath: art.relativePath, sha256: check.sha256, size: check.size });
+  }
+  // P2 TOCTOU hash binding (Assignment 1.4): the gate returns the verified
+  // hashes and sizes, so the completion step can re-verify them immediately
+  // before marking the task completed, instead of trusting the first check.
+  return { ok: true, verifiedArtifacts };
+}
+
+// P0/P2 artifact verification (Assignments 1.2 and 1.4). Applies to every
+// artifact, not just video:
+// - Only relativePath inside the workspace is trusted. A caller-supplied
+//   absolutePath is never used for verification (Assignment 1.1 bypass).
+// - getVerifiedArtifactPath rejects traversal, Windows-style backslashes,
+//   absolute and drive-letter paths, missing files, directories, and
+//   symlinks that resolve outside the workspace (realpath check).
+// - The file is actually read, in 64 KB chunks, which proves readability
+//   (a chmod 000 file fails) and computes a SHA-256. Recorded size must
+//   match the stat size and the bytes actually read, and recorded SHA-256,
+//   when present, must match the computed hash. Same-size replacement with
+//   different content therefore fails on hash, not just on size.
+// - Expected type, when present in expectedType, lang OR type (1.4: the
+//   project-builder field), must match the file extension.
+// - .mp4 files must pass bounded structural MP4 validation (ftyp + moov +
+//   mdat, box boundaries, bounded memory). This is structural validation
+//   only, NOT playback verification.
+function verifyArtifactFile(art) {
+  if (!art || typeof art.relativePath !== 'string' || !art.relativePath) {
+    return { ok: false, error: 'Task cannot complete: a recorded file artifact has no valid path.' };
+  }
+  let verified;
+  try {
+    verified = getVerifiedArtifactPath(null, art.relativePath);
+  } catch (e) {
+    return { ok: false, error: `Task cannot complete: output file "${art.relativePath}" could not be verified (${e.message}).` };
+  }
+  if (verified.size === 0) {
+    return { ok: false, error: `Task cannot complete: output file "${art.relativePath}" is missing or empty.` };
+  }
+  if (typeof art.size === 'number' && art.size > 0 && art.size !== verified.size) {
+    return { ok: false, error: `Task cannot complete: output file "${art.relativePath}" size mismatch (recorded ${art.size} bytes, actual ${verified.size} bytes).` };
+  }
+  let hashed;
+  try {
+    hashed = computeFileHashSync(verified.targetPath);
+  } catch (e) {
+    return { ok: false, error: `Task cannot complete: output file "${art.relativePath}" is not readable (${e.message}).` };
+  }
+  if (hashed.size !== verified.size) {
+    return { ok: false, error: `Task cannot complete: output file "${art.relativePath}" changed during verification (stat ${verified.size} bytes, read ${hashed.size} bytes).` };
+  }
+  if (typeof art.sha256 === 'string' && art.sha256 && art.sha256 !== hashed.sha256) {
+    return { ok: false, error: `Task cannot complete: output file "${art.relativePath}" SHA-256 mismatch (recorded hash does not match the file on disk).` };
+  }
+  const expectedType = art.expectedType || art.lang || art.type || null;
+  if (expectedType) {
+    const allowed = EXPECTED_TYPE_EXTENSIONS[String(expectedType).toLowerCase()];
+    if (allowed) {
+      const ext = path.extname(art.relativePath).toLowerCase();
+      if (!allowed.includes(ext)) {
+        return { ok: false, error: `Task cannot complete: output file "${art.relativePath}" has extension "${ext}" but expected type "${expectedType}" requires one of ${allowed.join(', ')}.` };
+      }
+    }
+  }
+  if (art.relativePath.toLowerCase().endsWith('.mp4')) {
+    const mp4 = validateMp4File(verified.targetPath);
+    if (!mp4.ok) {
+      return { ok: false, error: `Task cannot complete: MP4 file "${art.relativePath}" failed structural validation: ${mp4.error} (structural validation only, not playback verification).` };
+    }
+  }
+  return { ok: true, sha256: hashed.sha256, size: hashed.size };
 }
 
 // Check if error is transient / temporary
@@ -265,6 +440,9 @@ async function executeOrchestratedTask({
   resumeOnly = false,
   customTimeoutMs = 15000,
   backoffBaseMs = 400,
+  // P0 cost control: default false, fail closed. Only an explicit true
+  // allows a paid provider, on primary, fallback and retry paths.
+  allowPaid = false,
 }) {
   // Duplicate execution prevention
   if (activeTasks.has(taskId)) {
@@ -289,6 +467,16 @@ async function executeOrchestratedTask({
   if (task.status === 'done' || task.status === 'completed') {
     const err = new Error(`Task #${taskId} is already completed.`);
     err.status = 400;
+    throw err;
+  }
+
+  // P0 cost control, primary path: fail closed before any provider is called.
+  // This check is repeated in the generation loop and in fallback selection,
+  // so a retry or fallback cannot silently switch to a paid provider.
+  const initialProviderId = requestedProvider || task.provider || 'gemini';
+  if (allowPaid !== true && isPaidProvider(initialProviderId)) {
+    const err = new Error(`Paid provider "${initialProviderId}" is blocked because allowPaid is false.`);
+    err.status = 403;
     throw err;
   }
 
@@ -458,6 +646,11 @@ async function executeOrchestratedTask({
         if (!currentProvider) {
           throw new Error(`Provider "${providerId}" is not available in system registry.`);
         }
+        // P0 cost control, generation path: never call a paid provider when
+        // allowPaid is not an explicit true, even after a retry or fallback.
+        if (allowPaid !== true && isPaidProvider(providerId)) {
+          throw new Error(`Paid provider "${providerId}" is blocked because allowPaid is false.`);
+        }
 
         const depContextBlock = checkpointData.dependencyContext
           ? `\nContext and outputs from upstream completed dependencies:\n${checkpointData.dependencyContext}\n`
@@ -548,7 +741,7 @@ async function executeOrchestratedTask({
             addLog('warn', `Task #${taskId}: Primary provider "${providerId}" failed (${genErr.message}). Searching for verified fallback provider...`);
           }
 
-          const fallback = await findFallbackProvider(providerId, providers, addLog);
+          const fallback = await findFallbackProvider(providerId, providers, addLog, { allowPaid });
           if (fallback) {
             if (addLog) {
               addLog('ok', `Task #${taskId}: Switching to fallback provider "${fallback.name}".`);
@@ -613,6 +806,7 @@ async function executeOrchestratedTask({
           allowOverwrite: true,
           customTimeoutMs,
           addLog,
+          allowPaid,
         });
         if (projectResult && projectResult.ok) {
           checkpointData.artifacts = projectResult.artifacts;
@@ -670,6 +864,9 @@ async function executeOrchestratedTask({
               sha256: w.sha256,
               createdAt: w.createdAt,
               status: 'written',
+              // P0 file-type check: record the expected type at write time,
+              // so the completion gate can verify extension matches type.
+              expectedType: art.lang || null,
             });
           }
           checkpointData.artifacts = writtenList;
@@ -681,7 +878,47 @@ async function executeOrchestratedTask({
       }
     }
 
+    // P0 file-task signal (Assignment 1.2): a project goal is a file task
+    // even if its artifact list is empty at this point, so an empty list
+    // must fail instead of completing as text.
+    // P2 title intent (Assignment 1.4): a title like "Create login.html"
+    // is also a file task, even if no artifact was returned.
+    if (agent === 'coding' && (isProjectGoal(task.title) || isProjectGoal(parentTaskTitle))) {
+      checkpointData.fileTaskExpected = true;
+    }
+    if (hasFileGenerationIntent(task.title) || hasFileGenerationIntent(parentTaskTitle)) {
+      checkpointData.fileTaskExpected = true;
+    }
+
     completedSteps.push('verifying');
+
+    // P0 completion gate: a task must not reach completed/100% without a
+    // verified output. A failed gate throws and the outer catch marks the
+    // task failed, preserving the last checkpoint for recovery.
+    const completionCheck = verifyTaskCompletion({ agent, finalResult, checkpointData, taskTitle: task.title, parentTitle: parentTaskTitle });
+    if (!completionCheck.ok) {
+      throw new Error(completionCheck.error);
+    }
+    if (completionCheck.verifiedArtifacts) {
+      checkpointData.verifiedArtifacts = completionCheck.verifiedArtifacts;
+    }
+    // P2 TOCTOU re-verification (Assignment 1.4): re-run the gate with
+    // hash binding immediately before the final UPDATE, with no await in
+    // between, so a file replaced after the first check cannot slip
+    // through. If the second check fails, the task fails instead of
+    // completing, and the verified hashes are not trusted.
+    const recheck = verifyTaskCompletion({ agent, finalResult, checkpointData, taskTitle: task.title, parentTitle: parentTaskTitle });
+    if (!recheck.ok) {
+      throw new Error(`Re-verification failed before completion: ${recheck.error}`);
+    }
+    if (recheck.verifiedArtifacts) {
+      const first = JSON.stringify(completionCheck.verifiedArtifacts || []);
+      const second = JSON.stringify(recheck.verifiedArtifacts || []);
+      if (first !== second) {
+        throw new Error('Re-verification failed before completion: artifact hashes changed during verification.');
+      }
+      checkpointData.verifiedArtifacts = recheck.verifiedArtifacts;
+    }
 
     const completedAt = Date.now();
     db.prepare(`
@@ -905,12 +1142,17 @@ function decomposeGoalHeuristic(goalTitle, { priority = 'Medium' } = {}) {
   };
 }
 
-async function decomposeGoal(goalTitle, { providers = {}, priority = 'Medium' } = {}) {
+async function decomposeGoal(goalTitle, { providers = {}, priority = 'Medium', allowPaid = false } = {}) {
   const cleanGoal = typeof goalTitle === 'string' ? goalTitle.trim() : '';
   if (cleanGoal.length < 3 || cleanGoal.length > 4000) {
     throw new Error('Goal must be 3 to 4000 characters.');
   }
 
+  // P1 explicit allowPaid (Assignment 1.2): decomposition calls Gemini
+  // directly, bypassing executeOrchestratedTask, so it must check here.
+  // Gemini is free-tier today, so this passes with allowPaid false, but
+  // the check is explicit and will block a paid provider if this ever changes.
+  assertAllowPaid('gemini', allowPaid);
   const geminiProvider = providers && providers.gemini;
   let useGemini = false;
   if (geminiProvider && typeof geminiProvider.checkHealth === 'function') {
@@ -1093,6 +1335,11 @@ async function executeSequentialWorkflow({
   addLog,
   requestedProvider = 'gemini',
   customTimeoutMs = 15000,
+  // P1 explicit allowPaid (Assignment 1.2): previously this function omitted
+  // allowPaid and relied on the default false in executeOrchestratedTask.
+  // It is now explicit, so every nested workflow subtask respects the same
+  // policy and a future default change cannot silently bypass it.
+  allowPaid = false,
 }) {
   if (activeWorkflows.has(parentId) || activeTasks.has(parentId)) {
     const err = new Error(`Workflow #${parentId} is already executing. Duplicate execution prevented.`);
@@ -1214,6 +1461,7 @@ async function executeSequentialWorkflow({
         addLog,
         requestedProvider,
         customTimeoutMs,
+        allowPaid,
       });
 
       if (!execResult.ok) {
@@ -1261,4 +1509,7 @@ module.exports = {
   readArtifact,
   extractArtifactsFromMarkdown,
   validateArtifactContent,
+  verifyTaskCompletion,
+  verifyArtifactFile,
+  hasFileGenerationIntent,
 };

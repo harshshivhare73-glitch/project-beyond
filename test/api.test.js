@@ -43,7 +43,11 @@ test('data survives a server restart', async () => {
 });
 test('clear logs and reset', async () => {
   await call('DELETE', '/api/logs'); assert.equal((await (await call('GET', '/api/state')).json()).logs.length, 0);
-  await call('POST', '/api/reset'); const s = await (await call('GET', '/api/state')).json();
+  // Reset is token-gated (Assignments 1.2-1.4): a bare POST is rejected.
+  // A backup token from GET /api/backup plus confirm:"RESET" is required.
+  const bk = await (await call('GET', '/api/backup')).json();
+  assert.equal((await call('POST', '/api/reset', { backupToken: bk.backupToken, confirm: 'RESET' })).status, 200);
+  const s = await (await call('GET', '/api/state')).json();
   assert.equal(s.tasks.length, 3); assert.equal(s.settings.freeFirst, true);
 });
 test('reports Ollama connection status and models', async () => {

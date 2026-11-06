@@ -2,7 +2,7 @@
   "name": "project-beyond",
   "version": "0.2.0",
   "private": true,
-  "description": "Project Beyond: local-first AI command center prototype (no AI services connected)",
+  "description": "Project Beyond: local-first AI command center prototype (free-tier providers only; no paid calls)",
   "scripts": { "start": "node server.js", "test": "node --test" },
   "engines": { "node": ">=22.13" }
 }

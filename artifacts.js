@@ -73,6 +73,272 @@ function toRelativePosix(baseDir, absolutePath) {
 }
 
 /**
+ * P0 path security (Assignment 1.2): verify that a resolved path, after
+ * resolving every symlink, still lies inside the workspace boundary.
+ * resolveSafePath alone checks the string prefix, which a symlink inside
+ * the workspace pointing outside can bypass. This function closes that gap.
+ * Throws on any escape. Missing files are handled by the caller, which
+ * checks existence before calling this with a real path.
+ */
+function verifyRealPathInside(baseDir, targetPath) {
+  const realBase = fs.realpathSync(path.resolve(baseDir));
+  const realTarget = fs.realpathSync(path.resolve(targetPath));
+  if (realTarget !== realBase && !realTarget.startsWith(realBase + path.sep)) {
+    throw new Error(`Path escapes the workspace: resolved path "${realTarget}" is outside "${realBase}".`);
+  }
+  return realTarget;
+}
+
+/**
+ * P0 path security (Assignment 1.2): resolve an artifact path and verify
+ * it completely, for every verification path (not just video tasks).
+ * - Rejects backslash (Windows-style) separators, null bytes, absolute
+ *   paths and Windows drive letters, before any filesystem access.
+ * - Rejects ../ traversal via resolveSafePath.
+ * - Rejects missing files, directories, and symlinks that resolve outside
+ *   the workspace (via verifyRealPathInside).
+ * - Never trusts a caller-supplied absolutePath: only relativePath inside
+ *   the workspace is accepted. Callers must not pass absolutePath here.
+ * Returns { baseDir, targetPath, realPath, size } or throws.
+ */
+function getVerifiedArtifactPath(workspaceDir = null, relativePath) {
+  if (typeof relativePath !== 'string' || !relativePath) {
+    throw new Error('Artifact path must be a non-empty string.');
+  }
+  if (relativePath.includes('\\')) {
+    throw new Error('Backslash path separators are not allowed in artifact paths (Windows-style paths rejected).');
+  }
+  const baseDir = resolveWorkspaceDir(workspaceDir);
+  const targetPath = resolveSafePath(baseDir, relativePath);
+  if (!fs.existsSync(targetPath)) {
+    const err = new Error(`Artifact "${relativePath}" not found.`);
+    err.status = 404;
+    throw err;
+  }
+  const stats = fs.statSync(targetPath);
+  if (!stats.isFile()) {
+    const err = new Error(`Path "${relativePath}" is a directory, not a file.`);
+    err.status = 400;
+    throw err;
+  }
+  const realPath = verifyRealPathInside(baseDir, targetPath);
+  return { baseDir, targetPath, realPath, size: stats.size };
+}
+
+/**
+ * P0/P2 MP4 structural validation (Assignments 1.2 and 1.4), pure Node, no
+ * dependency, no FFmpeg/FFprobe. This validates ISO Base Media File Format
+ * box structure only — it does NOT prove the file plays, decodes, or has
+ * valid video frames, and it does NOT prove the media data is decodable.
+ * Never label this as playback verification.
+ * Stricter rules (1.4):
+ * - ftyp major brand and every compatible brand must be printable ASCII.
+ * - moov must contain mvhd or trak, and every moov child must be a known
+ *   moov child type (mvhd, trak, udta, meta, mvex, free, skip). Junk children
+ *   such as xxxx are rejected.
+ * - At least one mdat box must be present, otherwise the file has no media
+ *   data, even if ftyp and moov are present.
+ * Bounded-memory file validation (1.4): validateMp4File() does NOT read
+ * the whole file. It seeks through box headers, reads only ftyp and moov
+ * payloads (moov capped at 16 MB), and skips mdat payloads by seeking.
+ * Memory use is therefore bounded by moov size, not by file size, and a
+ * large file is not loaded into RAM. A moov larger than 16 MB is rejected
+ * with a bounded-validation error, not silently accepted. This is a
+ * documented limitation, not a claim of 4 GB support: 4 GB support is not
+ * claimed unless a large file is tested with this bounded parser.
+ */
+const MP4_MOOV_CHILD_TYPES = new Set(['mvhd', 'trak', 'udta', 'meta', 'mvex', 'free', 'skip']);
+const MP4_MAX_MOOV_BYTES = 16 * 1024 * 1024;
+function isPrintableAscii(str) {
+  for (let i = 0; i < str.length; i += 1) {
+    const c = str.charCodeAt(i);
+    if (c < 0x20 || c > 0x7e) return false;
+  }
+  return str.length > 0;
+}
+function validateMp4Boxes(topBoxes, ftypPayload, moovPayload) {
+  if (topBoxes.length === 0 || topBoxes[0].type !== 'ftyp') {
+    return { ok: false, error: 'MP4 file must start with an ftyp box.' };
+  }
+  const ftyp = topBoxes[0];
+  if (ftyp.size < 16 || (ftyp.size - 16) % 4 !== 0) {
+    return { ok: false, error: 'MP4 ftyp box is malformed.' };
+  }
+  if (!ftypPayload || ftypPayload.length < 8) {
+    return { ok: false, error: 'MP4 ftyp box is malformed.' };
+  }
+  const majorBrand = ftypPayload.toString('ascii', 0, 4);
+  if (!isPrintableAscii(majorBrand)) {
+    return { ok: false, error: 'MP4 ftyp major brand is not printable ASCII.' };
+  }
+  for (let i = 8; i + 4 <= ftypPayload.length; i += 4) {
+    if (!isPrintableAscii(ftypPayload.toString('ascii', i, i + 4))) {
+      return { ok: false, error: 'MP4 ftyp compatible brand is not printable ASCII.' };
+    }
+  }
+  const moov = topBoxes.find((b) => b.type === 'moov');
+  if (!moov) {
+    return { ok: false, error: 'MP4 file has no moov box (only a header or incomplete container).' };
+  }
+  if (!topBoxes.some((b) => b.type === 'mdat')) {
+    return { ok: false, error: 'MP4 file has no mdat box (no media data).' };
+  }
+  if (!moovPayload || moovPayload.length === 0) {
+    return { ok: false, error: 'MP4 moov box is empty.' };
+  }
+  let childOffset = 0;
+  let childCount = 0;
+  let hasMediaHeader = false;
+  while (childOffset < moovPayload.length) {
+    if (moovPayload.length - childOffset < 8) {
+      return { ok: false, error: 'MP4 moov child box header truncated.' };
+    }
+    let csize = moovPayload.readUInt32BE(childOffset);
+    const ctype = moovPayload.toString('ascii', childOffset + 4, childOffset + 8);
+    let cheader = 8;
+    if (csize === 1) {
+      if (moovPayload.length - childOffset < 16) return { ok: false, error: 'MP4 moov child largesize header truncated.' };
+      const large = moovPayload.readBigUInt64BE(childOffset + 8);
+      if (large > BigInt(Number.MAX_SAFE_INTEGER)) return { ok: false, error: 'MP4 moov child box size too large.' };
+      csize = Number(large); cheader = 16;
+    } else if (csize === 0) {
+      csize = moovPayload.length - childOffset;
+    }
+    if (!/^[a-zA-Z0-9]{4}$/.test(ctype) || csize < cheader || childOffset + csize > moovPayload.length) {
+      return { ok: false, error: 'MP4 moov child box is truncated or corrupt.' };
+    }
+    if (!MP4_MOOV_CHILD_TYPES.has(ctype)) {
+      return { ok: false, error: `MP4 moov child box type "${ctype}" is not a known moov child.` };
+    }
+    if (ctype === 'mvhd' || ctype === 'trak') hasMediaHeader = true;
+    childCount += 1;
+    childOffset += csize;
+  }
+  if (childCount === 0 || !hasMediaHeader) {
+    return { ok: false, error: 'MP4 moov box must contain mvhd or trak.' };
+  }
+  return { ok: true, boxes: topBoxes.map((b) => b.type) };
+}
+function parseTopBoxesFromBuffer(buffer) {
+  const boxes = [];
+  let offset = 0;
+  while (offset < buffer.length) {
+    if (buffer.length - offset < 8) {
+      return { error: `MP4 box header truncated at offset ${offset}.` };
+    }
+    let size = buffer.readUInt32BE(offset);
+    const type = buffer.toString('ascii', offset + 4, offset + 8);
+    if (!/^[a-zA-Z0-9]{4}$/.test(type)) {
+      return { error: `MP4 box type invalid at offset ${offset}.` };
+    }
+    let headerSize = 8;
+    if (size === 1) {
+      if (buffer.length - offset < 16) return { error: `MP4 largesize box header truncated at offset ${offset}.` };
+      const large = buffer.readBigUInt64BE(offset + 8);
+      if (large > BigInt(Number.MAX_SAFE_INTEGER)) return { error: `MP4 box size too large at offset ${offset}.` };
+      size = Number(large); headerSize = 16;
+    } else if (size === 0) {
+      size = buffer.length - offset;
+    }
+    if (size < headerSize) return { error: `MP4 box size ${size} is smaller than its header at offset ${offset}.` };
+    if (offset + size > buffer.length) return { error: `MP4 box "${type}" at offset ${offset} claims size ${size} but the file ends at ${buffer.length} (truncated or corrupt).` };
+    boxes.push({ type, offset, size, headerSize });
+    offset += size;
+  }
+  return { boxes };
+}
+function validateMp4Buffer(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
+    return { ok: false, error: 'MP4 file is empty.' };
+  }
+  const parsed = parseTopBoxesFromBuffer(buffer);
+  if (parsed.error) return { ok: false, error: parsed.error };
+  const ftyp = parsed.boxes[0];
+  const moov = parsed.boxes.find((b) => b.type === 'moov');
+  const ftypPayload = ftyp ? buffer.subarray(ftyp.offset + ftyp.headerSize, ftyp.offset + ftyp.size) : null;
+  const moovPayload = moov ? buffer.subarray(moov.offset + moov.headerSize, moov.offset + moov.size) : null;
+  return validateMp4Boxes(parsed.boxes, ftypPayload, moovPayload);
+}
+function validateMp4File(targetPath) {
+  let fd;
+  try {
+    fd = fs.openSync(targetPath, 'r');
+    const fileSize = fs.fstatSync(fd).size;
+    if (fileSize === 0) return { ok: false, error: 'MP4 file is empty.' };
+    const boxes = [];
+    let offset = 0;
+    let ftypPayload = null;
+    let moovInfo = null;
+    while (offset < fileSize) {
+      if (fileSize - offset < 8) return { ok: false, error: `MP4 box header truncated at offset ${offset}.` };
+      const header = Buffer.alloc(16);
+      const read = fs.readSync(fd, header, 0, 16, offset);
+      if (read < 8) return { ok: false, error: `MP4 box header truncated at offset ${offset}.` };
+      let size = header.readUInt32BE(0);
+      const type = header.toString('ascii', 4, 8);
+      if (!/^[a-zA-Z0-9]{4}$/.test(type)) return { ok: false, error: `MP4 box type invalid at offset ${offset}.` };
+      let headerSize = 8;
+      if (size === 1) {
+        if (read < 16) return { ok: false, error: `MP4 largesize box header truncated at offset ${offset}.` };
+        const large = header.readBigUInt64BE(8);
+        if (large > BigInt(Number.MAX_SAFE_INTEGER)) return { ok: false, error: `MP4 box size too large at offset ${offset}.` };
+        size = Number(large); headerSize = 16;
+      } else if (size === 0) {
+        size = fileSize - offset;
+      }
+      if (size < headerSize) return { ok: false, error: `MP4 box size ${size} is smaller than its header at offset ${offset}.` };
+      if (offset + size > fileSize) return { ok: false, error: `MP4 box "${type}" at offset ${offset} claims size ${size} but the file ends at ${fileSize} (truncated or corrupt).` };
+      boxes.push({ type, offset, size, headerSize });
+      if (type === 'ftyp') {
+        if (size > 4096) return { ok: false, error: 'MP4 ftyp box is too large for bounded validation.' };
+        ftypPayload = Buffer.alloc(size - headerSize);
+        fs.readSync(fd, ftypPayload, 0, ftypPayload.length, offset + headerSize);
+      }
+      if (type === 'moov') {
+        if (size - headerSize > MP4_MAX_MOOV_BYTES) return { ok: false, error: 'MP4 moov box is too large for bounded validation (over 16 MB).' };
+        moovInfo = { offset, size, headerSize };
+      }
+      offset += size;
+    }
+    let moovPayload = null;
+    if (moovInfo) {
+      moovPayload = Buffer.alloc(moovInfo.size - moovInfo.headerSize);
+      if (moovPayload.length > 0) fs.readSync(fd, moovPayload, 0, moovPayload.length, moovInfo.offset + moovInfo.headerSize);
+    }
+    return validateMp4Boxes(boxes, ftypPayload, moovPayload);
+  } catch (e) {
+    return { ok: false, error: `MP4 file could not be read: ${e.message}` };
+  } finally {
+    if (fd !== undefined) { try { fs.closeSync(fd); } catch {} }
+  }
+}
+
+/**
+ * P2 hash verification (Assignment 1.4): compute SHA-256 by reading the
+ * file in 64 KB chunks. Memory use is bounded by chunk size, not by file
+ * size, so a large MP4 can be hashed without loading it into RAM. Reading
+ * the whole file also proves it is actually readable, unlike stat alone.
+ * Returns { sha256, size } where size is the number of bytes actually read.
+ * Throws on read errors (permission, missing, truncated during read).
+ */
+function computeFileHashSync(targetPath) {
+  const hash = crypto.createHash('sha256');
+  const fd = fs.openSync(targetPath, 'r');
+  try {
+    const chunk = Buffer.alloc(64 * 1024);
+    let total = 0;
+    let read;
+    while ((read = fs.readSync(fd, chunk, 0, chunk.length, total)) > 0) {
+      hash.update(chunk.subarray(0, read));
+      total += read;
+    }
+    return { sha256: hash.digest('hex'), size: total };
+  } finally {
+    try { fs.closeSync(fd); } catch {}
+  }
+}
+
+/**
  * Validates file content and checks for signs of provider truncation.
  * @param {string} content
  * @param {string} [expectedType]
@@ -298,21 +564,10 @@ function listArtifacts(workspaceDir = null) {
  * @returns {object} Content and metadata
  */
 function readArtifact(workspaceDir = null, relativePath) {
-  const baseDir = resolveWorkspaceDir(workspaceDir);
-  const targetPath = resolveSafePath(baseDir, relativePath);
-
-  if (!fs.existsSync(targetPath)) {
-    const err = new Error(`Artifact "${relativePath}" not found.`);
-    err.status = 404;
-    throw err;
-  }
-
+  // P0 path security: read through the verified path, so a symlink inside
+  // the workspace pointing outside cannot be read through this function.
+  const { baseDir, targetPath } = getVerifiedArtifactPath(workspaceDir, relativePath);
   const stats = fs.statSync(targetPath);
-  if (!stats.isFile()) {
-    const err = new Error(`Path "${relativePath}" is a directory, not a file.`);
-    err.status = 400;
-    throw err;
-  }
 
   const content = fs.readFileSync(targetPath, 'utf8');
   return {
@@ -391,4 +646,9 @@ module.exports = {
   listArtifacts,
   readArtifact,
   extractArtifactsFromMarkdown,
+  verifyRealPathInside,
+  getVerifiedArtifactPath,
+  validateMp4Buffer,
+  validateMp4File,
+  computeFileHashSync,
 };

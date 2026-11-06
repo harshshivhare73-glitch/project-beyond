@@ -1,6 +1,6 @@
 # Project Beyond (local backend edition)
 
-A local-first AI command-center prototype. **No AI services are connected, no API keys are used, nothing paid is enabled.**
+A local-first AI command-center prototype. **Free-tier providers only (Gemini, Groq, OpenRouter, DeepSeek, OpenAI, Anthropic via free models); no paid calls without explicit approval. API keys live in local env files, never in the repo.**
 Tasks and activity logs are stored in a SQLite database file on your own computer.
 
 ## What you need
@@ -22,6 +22,9 @@ Your data is saved in `data/beyond.db`. Delete that file to start fresh, or use 
 
 Use another port: `PORT=3001 node server.js` (Windows PowerShell: `$env:PORT=3001; node server.js`).
 
+## Remote access (private Tailscale network only)
+The server is reachable from your own devices on your private Tailscale network — it is NOT exposed to the public internet. Start it with `node server.js`, then open `http://<tailnet-IP>:3000` (your PC's Tailscale IP, e.g. `100.64.x.x`) or `http://<machine-name>:3000` from another device on the same tailnet. Requests with any other Host header (public hostnames, LAN IPs) are rejected with 403.
+
 ## Run the tests
 ```
 node --test
@@ -32,7 +35,7 @@ node --test
 Browser (public/index.html) -> server.js (Node built-ins only) -> data/beyond.db (SQLite)
 ```
 - If the backend isn't running (or you open `index.html` directly), the page falls back to browser storage and says so in the banner.
-- The server listens on `127.0.0.1` only, validates all input, and rejects requests from other websites.
+- The server listens on all interfaces (`0.0.0.0`) but only answers Host headers for localhost and your private Tailscale network (tailnet IPs `100.64.0.0/10`, `*.ts.net`, MagicDNS names). See "Remote access (Tailscale)" below.
 
 | Method | Path | Purpose |
 |---|---|---|

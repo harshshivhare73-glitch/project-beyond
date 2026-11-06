@@ -14,6 +14,11 @@ const {
   resolveSafePath,
   resolveWorkspaceDir,
 } = require('./artifacts');
+// P1 explicit allowPaid (Assignment 1.2): project builder calls a provider
+// directly, bypassing executeOrchestratedTask, so it must check itself.
+// A paid provider with allowPaid false must never be called; the file
+// then falls back to the deterministic template path below, not to a paid call.
+const { isPaidProvider } = require('./providers');
 
 /**
  * Derives a clean project directory slug from a user goal.
@@ -879,14 +884,20 @@ async function buildProjectFile({
   workspaceDir = null,
   allowOverwrite = false,
   customTimeoutMs = 15000,
+  allowPaid = false,
 }) {
   fileItem.status = 'generating';
 
   let codeContent = null;
   let isAiGenerated = false;
 
+  // P1 explicit allowPaid: a paid provider must never be called here.
+  // With allowPaid false, AI generation is skipped and the deterministic
+  // template path below is used instead.
+  const providerIsPaid = provider && provider.id ? isPaidProvider(provider.id) : false;
+  const aiAllowed = provider && typeof provider.generateContent === 'function' && (allowPaid === true || !providerIsPaid);
   // Attempt bounded AI generation if provider is provided and healthy
-  if (provider && typeof provider.generateContent === 'function') {
+  if (aiAllowed) {
     try {
       const prompt = `You are the Project Beyond Bounded Code Generator.\nGenerate the COMPLETE, unclosed source code for file: "${fileItem.path}".\nProject Spec: "${projectSpec.goal}".\nFile Purpose: ${fileItem.description}.\nRules:\n1. Output ONLY the raw file content for "${path.basename(fileItem.path)}".\n2. Do NOT wrap in markdown backticks.\n3. Do not truncate. Provide full, working code.\n4. Honor dependencies: ${fileItem.dependencies.join(', ') || 'none'}.`;
 
@@ -1077,6 +1088,7 @@ async function buildProject({
   addLog = null,
   allowOverwrite = false,
   customTimeoutMs = 15000,
+  allowPaid = false,
 }) {
   const baseDir = resolveWorkspaceDir(workspaceDir);
   const manifest = planProjectManifest(goal, { targetDir });
@@ -1126,6 +1138,7 @@ async function buildProject({
         workspaceDir: baseDir,
         allowOverwrite: true, // directory-level overwrite check was already passed
         customTimeoutMs,
+        allowPaid,
       });
       writtenArtifacts.push(record);
       if (addLog) {
